@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "spectreweb-ai": {
+      "command": "python3",
+      "args": [
+        "/path/spectreweb_mcp.py",
+        "--server",
+        "http://IPADDRESS:8888"
+      ],
+      "description": "Spectreweb AI v6.0 - Advanced Cybersecurity Automation Platform. Turn off alwaysAllow if you dont want autonomous execution!",
+      "timeout": 1500,
+      "alwaysAllow": []
+    }
+  }
+}
