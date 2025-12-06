@@ -1,6 +1,6 @@
 # 👻 Spectreweb AI v4.0
 
-> **Self-Learning AI for Manual Penetration Testing**
+> **Self-Learning AI for Manual Web Penetration Testing**
 >
 > 🎯 Manual Testing First | Self-Learning AI | WAF Bypass | Context-Aware | Bug Bounty Ready
 
@@ -19,30 +19,30 @@
                 ╚══╝╚══╝ ╚══════╝╚═════╝
 ```
 
-## 🎯 Tại sao Spectreweb AI khác biệt?
+## 🎯 Why Spectreweb AI Is Different
 
-### ❌ Vấn đề với Auto Scanners truyền thống
+### ❌ Problems with Traditional Auto Scanners
 
-| Tool | Vấn đề |
-|------|--------|
-| Nuclei, Nikto | Bị WAF block, signature-based, dễ detect |
-| Burp Scanner | Chậm, tốn license, không AI-native |
-| OWASP ZAP | Noisy, false positives nhiều |
-| Automated tools | Rate limited, IP banned, miss logic bugs |
+| Tool | Limitation |
+|------|------------|
+| Nuclei, Nikto | Blocked by WAFs, signature-based, easy to detect |
+| Burp Scanner | Slow, expensive license, not AI-native |
+| OWASP ZAP | Noisy, many false positives |
+| Generic automated tools | Rate limited, IP banned, miss logic bugs |
 
-### ✅ Spectreweb AI: Manual Testing với AI
+### ✅ Spectreweb AI: Manual Testing with AI
 
-**Spectreweb không phải auto scanner** - nó là **AI-powered assistant** cho manual penetration testing:
+**Spectreweb is not an auto scanner** – it is an **AI-powered assistant** for manual penetration testing:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  🎯 SPECTREWEB AI PHILOSOPHY                                        │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  ❌ Auto scan → Bị block → Fail                                    │
-│  ✅ AI analyze → Human decide → Smart test → Success               │
+│  ❌ Auto scan → Blocked by WAF → Fail                               │
+│  ✅ AI analyzes → Human decides → Smart tests → Success             │
 │                                                                     │
-│  "Không brute force, mà outsmart"                                  │
+│  "Don’t brute force the target – outsmart it."                     |
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -51,17 +51,17 @@
 
 | Feature | Traditional | Spectreweb AI |
 |---------|-------------|--------------|
-| **Approach** | Auto scan everything | AI-guided manual testing |
-| **WAF Bypass** | Hope it works | Generate 10+ bypass variants |
-| **Payloads** | Static wordlists | Context-aware, mutated |
-| **Rate Limits** | Get blocked | Test & adapt |
-| **False Positives** | Many | AI validates |
-| **Logic Bugs** | Miss | AI suggests tests |
-| **Session** | Start fresh | Persists findings |
+| **Approach** | Blind auto-scanning | AI-guided, operator-driven testing |
+| **WAF Bypass** | Hope it works | Generate 10+ smart bypass variants |
+| **Payloads** | Static wordlists | Context-aware, mutated payloads |
+| **Rate Limits** | Get blocked | Detect, adapt, and throttle |
+| **False Positives** | Many | AI-assisted validation |
+| **Logic Bugs** | Often missed | AI suggests business-logic test cases |
+| **Session** | Stateless | Persists findings and context |
 
 ## 🧠 Self-Learning AI (NEW in v4.0!)
 
-Spectreweb AI now features a **self-learning local AI** that improves over time:
+Spectreweb AI includes a **self-learning local AI** that becomes smarter with your usage:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -86,9 +86,9 @@ Spectreweb AI now features a **self-learning local AI** that improves over time:
 
 | Model | Learns From | Purpose |
 |-------|-------------|---------|
-| **SecretClassifier** | Your true/false positive feedback | Reduce FP in secret detection |
+| **SecretClassifier** | Your true/false positive feedback | Reduce false positives in secret detection |
 | **EndpointRiskScorer** | Attack history & results | Prioritize high-risk endpoints |
-| **PayloadRanker** | Which payloads worked | Select effective payloads first |
+| **PayloadRanker** | Payloads that actually worked | Prefer effective payloads first |
 
 ### 🚀 How It Works
 
@@ -112,17 +112,17 @@ POST /api/ai/classify_secret
 
 ### 🔄 Hybrid AI Strategy
 
-- **Local AI** (fast, free, learns from you):
+- **Local AI** (fast, free, personalized):
   - Secret classification
   - Endpoint risk scoring
   - Payload ranking
   
-- **Remote AI** (powerful, for complex tasks):
+- **Remote AI** (heavier, for complex reasoning):
   - Deep vulnerability analysis
-  - Exploit generation
-  - Report writing
+  - Exploit ideation and refinement
+  - Report drafting and polishing
 
-The orchestrator automatically routes to the best backend!
+The AI orchestrator automatically chooses the most appropriate backend.
 
 ## ⚡ Core Capabilities
 
@@ -194,7 +194,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Install Security Tools (Kali Linux)
+### 2. Install Security Tools (Recommended on Kali Linux)
 
 ```bash
 # ProjectDiscovery tools
@@ -212,7 +212,7 @@ go install github.com/hahwul/dalfox/v2@latest
 echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 ```
 
-### 3. Start Server
+### 3. Start the Spectreweb Server
 
 ```bash
 python server.py
@@ -222,7 +222,7 @@ python server.py
 # ✅ Server running at http://127.0.0.1:8888
 ```
 
-### 4. Configure MCP (for Windsurf/Claude)
+### 4. Configure MCP (for Windsurf / Claude / MCP-compatible clients)
 
 ```json
 {
@@ -238,9 +238,9 @@ python server.py
 }
 ```
 
-## 🛠️ Tools Overview (92 MCP Tools!)
+## 🛠️ Tools Overview (92 MCP Tools)
 
-### 🎯 Manual Testing (NEW in v3.2!)
+### 🎯 Manual Testing (Operator-First)
 
 | Tool | Description |
 |------|-------------|
@@ -380,23 +380,23 @@ spectreweb-ai/
 | Local AI Models | 3 |
 | Learning Store Tables | 4 |
 
-## 🔒 Security Notice
+## 🔒 Legal & Ethical Use
 
-⚠️ **IMPORTANT**: Only test systems you have authorization for!
+⚠️ **IMPORTANT**: Only test systems you are explicitly authorized to test.
 
-- Get written permission before testing
-- Respect scope and rules of engagement
-- Report vulnerabilities responsibly
+- Obtain written permission before any assessment.
+- Respect scope, rate limits, and rules of engagement.
+- Follow responsible disclosure practices when reporting vulnerabilities.
 
 ## 📝 License
 
-MIT License - Use responsibly!
+MIT License – Use responsibly.
 
 ---
 
 <div align="center">
 
-**Built for Bug Bounty Hunters who think, not just scan**
+**Built for bug bounty hunters and security engineers who think, not just scan.**
 
 # 👻 Spectreweb AI v4.0
 
@@ -405,6 +405,6 @@ MIT License - Use responsibly!
 [![API](https://img.shields.io/badge/API_Endpoints-100+-orange.svg)]()
 [![AI](https://img.shields.io/badge/Self--Learning_AI-Enabled-purple.svg)]()
 
-*"AI học từ bạn, để trở nên mạnh hơn mỗi ngày"*
+*"AI that learns from your hacking style and becomes stronger every day."*
 
 </div>
