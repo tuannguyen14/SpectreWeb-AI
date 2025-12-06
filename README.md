@@ -1,4 +1,4 @@
-# 👻 Spectreweb AI v4.0
+# 👻 Spectreweb AI v4.1
 
 > **Self-Learning AI for Manual Web Penetration Testing**
 >
@@ -59,7 +59,7 @@
 | **Logic Bugs** | Often missed | AI suggests business-logic test cases |
 | **Session** | Stateless | Persists findings and context |
 
-## 🧠 Self-Learning AI (NEW in v4.0!)
+## 🧠 Self-Learning AI (NEW in v4.1!)
 
 Spectreweb AI includes a **self-learning local AI** that becomes smarter with your usage:
 
@@ -90,25 +90,44 @@ Spectreweb AI includes a **self-learning local AI** that becomes smarter with yo
 | **EndpointRiskScorer** | Attack history & results | Prioritize high-risk endpoints |
 | **PayloadRanker** | Payloads that actually worked | Prefer effective payloads first |
 
-### 🚀 How It Works
+### 🚀 How It Works (Automatic!)
 
 ```python
-# 1. Scan findings are automatically stored
-deep_secret_hunt("target.com")  # → Findings saved to learning store
+# 1. Just use the tools normally - data is collected automatically!
+deep_secret_hunt("target.com")     # → Secrets saved to learning store
+attack_session.run_attack(...)     # → Attack results saved to learning store
 
-# 2. You label findings (feedback loop)
-POST /api/learning/label
-{"finding_id": "secret_abc123", "label": "false_positive"}
+# 2. Label findings to teach the AI (via MCP tools or API)
+learning_label("secret_abc123", "false_positive")
+learning_label("secret_xyz789", "true_positive")
 
-# 3. AI learns and improves
-POST /api/ai/train
-# → Models retrained on your labeled data
+# 3. Auto-train when ready (or manually trigger)
+ai_auto_train()   # → Trains if 50+ labeled samples & 10+ new since last train
+ai_train()        # → Force train immediately
 
-# 4. Future scans use learned models
-POST /api/ai/classify_secret
-{"secret_type": "aws_key", "entropy": 4.8, "in_test_file": true}
+# 4. Get smart insights from your history
+ai_insights()
+# → {"attack_effectiveness": {"sqli": 0.15, "xss": 0.08}, "recommendations": [...]}
+
+# 5. Future scans use learned models automatically!
+ai_classify_secret(secret_type="aws_key", entropy=4.8, in_test_file=True)
 # → {"is_real": false, "confidence": 0.85, "model_used": "ml"}
 ```
+
+### 🔧 MCP Tools for Self-Learning
+
+| Tool | Description |
+|------|-------------|
+| `ai_status` | Get AI models & learning store status |
+| `ai_train` | Manually train models |
+| `ai_auto_train` | Auto-train if enough new data |
+| `ai_insights` | Get smart recommendations from history |
+| `ai_classify_secret` | Classify a secret using local AI |
+| `ai_score_endpoint` | Score endpoint vulnerability risk |
+| `learning_stats` | View learning store statistics |
+| `learning_list_findings` | List stored findings |
+| `learning_label` | Label a finding (feedback loop) |
+| `learning_export` | Export learning data to JSON |
 
 ### 🔄 Hybrid AI Strategy
 
@@ -218,7 +237,7 @@ echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 python server.py
 
 # Output:
-# 👻 Spectreweb AI v3.2 - Starting...
+# 👻 Spectreweb AI v4.1 - Starting...
 # ✅ Server running at http://127.0.0.1:8888
 ```
 
@@ -238,7 +257,7 @@ python server.py
 }
 ```
 
-## 🛠️ Tools Overview (92 MCP Tools)
+## 🛠️ Tools Overview (67 MCP Tools)
 
 ### 🎯 Manual Testing (Operator-First)
 
@@ -341,7 +360,7 @@ Session 2 (new chat):
 ```
 spectreweb-ai/
 ├── server.py              # Flask server
-├── mcp_client.py          # MCP client (57 tools)
+├── mcp_client.py          # MCP client (67 tools)
 ├── config/
 │   ├── settings.py        # Configuration
 │   └── wordlists.py       # SecLists (auto-resolve)
@@ -371,14 +390,15 @@ spectreweb-ai/
 
 | Metric | Value |
 |--------|-------|
-| API Endpoints | 100+ |
-| MCP Tools | 57 |
+| API Endpoints | 110+ |
+| MCP Tools | 67 |
 | Manual Testing Functions | 20+ |
 | WAF Bypass Techniques | 10+ |
 | Auth Bypass Techniques | 26 |
 | Payload Mutation Methods | 7 |
 | Local AI Models | 3 |
 | Learning Store Tables | 4 |
+| Self-Learning MCP Tools | 10 |
 
 ## 🔒 Legal & Ethical Use
 
@@ -398,11 +418,11 @@ MIT License – Use responsibly.
 
 **Built for bug bounty hunters and security engineers who think, not just scan.**
 
-# 👻 Spectreweb AI v4.0
+# 👻 Spectreweb AI v4.1
 
-[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)]()
-[![Tools](https://img.shields.io/badge/MCP_Tools-57-green.svg)]()
-[![API](https://img.shields.io/badge/API_Endpoints-100+-orange.svg)]()
+[![Version](https://img.shields.io/badge/version-4.1.0-blue.svg)]()
+[![Tools](https://img.shields.io/badge/MCP_Tools-67-green.svg)]()
+[![API](https://img.shields.io/badge/API_Endpoints-110+-orange.svg)]()
 [![AI](https://img.shields.io/badge/Self--Learning_AI-Enabled-purple.svg)]()
 
 *"AI that learns from your hacking style and becomes stronger every day."*

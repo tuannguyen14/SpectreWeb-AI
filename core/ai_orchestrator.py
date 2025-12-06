@@ -328,6 +328,103 @@ class AIOrchestrator:
         """Train local AI models from learning store data"""
         return self.local_ai.train_all(self.store)
     
+    def auto_train_if_ready(self) -> Dict[str, Any]:
+        """
+        Automatically train models if enough new labeled data is available.
+        
+        Conditions:
+        - At least MIN_SAMPLES (50) labeled findings per model
+        - At least 10 new samples since last train
+        
+        Returns training result or skip reason.
+        """
+        stats = self.store.get_stats()
+        labeled = stats.get("labeled_findings", {})
+        
+        # Count positive + negative labels
+        tp_count = labeled.get("true_positive", 0) + labeled.get("confirmed_bug", 0)
+        fp_count = labeled.get("false_positive", 0) + labeled.get("not_exploitable", 0)
+        total_labeled = tp_count + fp_count
+        
+        # Check if we have enough data
+        min_samples = 50
+        if total_labeled < min_samples:
+            return {
+                "action": "skipped",
+                "reason": f"Need {min_samples} labeled samples, have {total_labeled}",
+                "suggestion": "Label more findings using learning_label tool"
+            }
+        
+        # Check model status
+        model_status = self.local_ai.get_status()
+        secret_model = model_status.get("models", {}).get("secret_classifier", {})
+        
+        # If not trained yet, or significantly more data available
+        if secret_model.get("status") == "not_trained":
+            return self.train_local_models()
+        
+        last_samples = secret_model.get("samples_count", 0)
+        if total_labeled >= last_samples + 10:
+            return self.train_local_models()
+        
+        return {
+            "action": "skipped",
+            "reason": "Models are up-to-date",
+            "last_trained_samples": last_samples,
+            "current_labeled": total_labeled
+        }
+    
+    def get_smart_insights(self) -> Dict[str, Any]:
+        """
+        Generate smart insights based on learning history.
+        
+        Returns:
+        - Most effective attack types
+        - Common false positive patterns
+        - Recommended focus areas
+        """
+        stats = self.store.get_stats()
+        attacks = stats.get("attacks_by_type", {})
+        
+        insights = {
+            "attack_effectiveness": {},
+            "recommendations": [],
+            "patterns": {}
+        }
+        
+        # Calculate effectiveness per attack type
+        for attack_type, data in attacks.items():
+            total = data.get("total", 0)
+            interesting = data.get("interesting", 0)
+            if total > 0:
+                rate = interesting / total
+                insights["attack_effectiveness"][attack_type] = {
+                    "success_rate": round(rate, 3),
+                    "total_attempts": total,
+                    "interesting_findings": interesting
+                }
+        
+        # Generate recommendations
+        if attacks:
+            best_attack = max(attacks.items(), key=lambda x: x[1].get("interesting", 0) / max(x[1].get("total", 1), 1))
+            insights["recommendations"].append(
+                f"Most effective attack type: {best_attack[0]} ({best_attack[1].get('interesting', 0)} hits)"
+            )
+        
+        labeled = stats.get("labeled_findings", {})
+        fp_count = labeled.get("false_positive", 0)
+        tp_count = labeled.get("true_positive", 0) + labeled.get("confirmed_bug", 0)
+        
+        if fp_count + tp_count > 0:
+            fp_rate = fp_count / (fp_count + tp_count)
+            if fp_rate > 0.5:
+                insights["recommendations"].append(
+                    f"High false positive rate ({fp_rate:.1%}). Consider training AI models."
+                )
+            insights["patterns"]["false_positive_rate"] = round(fp_rate, 3)
+        
+        return insights
+    
     def get_status(self) -> Dict[str, Any]:
         """Get orchestrator status"""
         return {
@@ -335,6 +432,7 @@ class AIOrchestrator:
             "remote_configured": self.remote_handler is not None,
             "stats": self.stats,
             "cache_size": len(self.cache),
+            "insights": self.get_smart_insights()
         }
     
     def set_remote_handler(self, handler: Callable):

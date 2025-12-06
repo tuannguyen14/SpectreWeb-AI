@@ -781,6 +781,8 @@ class DeepSecretHunter:
         """
         Enrich a raw finding with category, risk, and exploitation hints.
         Returns None if duplicate.
+        
+        Also saves to LearningStore for self-learning AI.
         """
         secret_type = finding.get("type", "unknown")
         value = finding.get("value", "")
@@ -795,6 +797,7 @@ class DeepSecretHunter:
             category = categorize_secret(secret_type)
             confidence = finding.get("confidence", 0.5)
             context = finding.get("context", "")
+            entropy = finding.get("entropy", 0)
             
             risk = calculate_risk(secret_type, category, confidence, context)
             hints = get_exploitation_hints(category, secret_type)
@@ -811,12 +814,44 @@ class DeepSecretHunter:
                 line_number=finding.get("line", 0),
                 context=context[:500] if context else "",
                 confidence=confidence,
-                entropy=finding.get("entropy", 0),
+                entropy=entropy,
                 exploitation_hints=hints,
             )
             
             self.secrets_by_hash[value_hash] = enriched
             self.report.secrets_found.append(enriched)
+            
+            # ====== SELF-LEARNING: Save to LearningStore ======
+            try:
+                from core.learning_store import add_secret_finding
+                
+                # Build features for ML training
+                features = {
+                    "secret_type": secret_type,
+                    "entropy": entropy,
+                    "length": len(value),
+                    "in_test_file": any(p in source.lower() for p in ["test", "mock", "fake", "example", "sample"]),
+                    "in_comment": "comment" in source_type.lower() or "//" in context or "/*" in context,
+                    "has_placeholder": any(p in value.lower() for p in ["xxx", "your_", "example", "changeme", "todo"]),
+                    "confidence": confidence,
+                    "context_length": len(context),
+                    "source_type": source_type,
+                    "category": category.value,
+                    "risk": risk.value,
+                }
+                
+                add_secret_finding(
+                    target=self.target_domain,
+                    secret_type=secret_type,
+                    value_masked=value[:8] + "..." if len(value) > 8 else value,
+                    source=source,
+                    confidence=confidence,
+                    severity=risk.value,
+                    context=context[:200],
+                    features=features
+                )
+            except Exception as e:
+                pass  # Don't break scanning if learning store fails
             
             return enriched
     

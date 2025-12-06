@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI MCP Client v4.0 - Consolidated Tools
+SpectreWeb AI MCP Client v4.1 - Consolidated Tools
 Phantom Recon Engine - AI-Powered Web Penetration Testing
 
 Changes from v3.0:
@@ -836,11 +836,198 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         logger.info(f"📁 Local secrets scan: {len(paths)} paths")
         return client.post("api/secrets/local", {"paths": paths})
     
+    # ==========================
+    # SELF-LEARNING AI TOOLS
+    # ==========================
+    
+    @mcp.tool()
+    def ai_status() -> Dict[str, Any]:
+        """
+        🧠 Get AI system status.
+        
+        Returns:
+        - Local AI models status (trained/not trained)
+        - Learning store statistics
+        - ML availability
+        """
+        logger.info("🧠 Getting AI status")
+        return client.get("api/ai/status")
+    
+    @mcp.tool()
+    def ai_classify_secret(
+        secret_type: str,
+        entropy: float = 3.0,
+        length: int = 20,
+        in_test_file: bool = False,
+        in_comment: bool = False,
+        has_placeholder: bool = False,
+        confidence: float = 0.5
+    ) -> Dict[str, Any]:
+        """
+        🔍 Classify a secret as real or false positive using local AI.
+        
+        Uses trained ML model if available, falls back to heuristics.
+        
+        Returns:
+        - is_real: Whether the secret is likely real
+        - score: Confidence score (0-1)
+        - model_used: "ml" or "heuristic"
+        """
+        logger.info(f"🔍 Classifying secret: {secret_type}")
+        return client.post("api/ai/classify_secret", {
+            "secret_type": secret_type,
+            "entropy": entropy,
+            "length": length,
+            "in_test_file": in_test_file,
+            "in_comment": in_comment,
+            "has_placeholder": has_placeholder,
+            "confidence": confidence
+        })
+    
+    @mcp.tool()
+    def ai_score_endpoint(
+        endpoint_type: str,
+        method: str = "GET",
+        path: str = "",
+        tech_stack: list = None
+    ) -> Dict[str, Any]:
+        """
+        📊 Score an endpoint's vulnerability risk using local AI.
+        
+        Returns:
+        - risk_score: 0-1 score
+        - priority: "high", "medium", or "low"
+        - model_used: "ml" or "heuristic"
+        """
+        logger.info(f"📊 Scoring endpoint: {method} {path}")
+        return client.post("api/ai/score_endpoint", {
+            "endpoint_type": endpoint_type,
+            "method": method,
+            "path": path,
+            "tech_stack": tech_stack or []
+        })
+    
+    @mcp.tool()
+    def ai_train() -> Dict[str, Any]:
+        """
+        🎓 Train local AI models from labeled data.
+        
+        Trains:
+        - SecretClassifier (reduces FP in secret detection)
+        - EndpointRiskScorer (prioritizes risky endpoints)
+        
+        Requires at least 50 labeled samples per model.
+        """
+        logger.info("🎓 Training AI models")
+        return client.post("api/ai/train", {})
+    
+    @mcp.tool()
+    def ai_auto_train() -> Dict[str, Any]:
+        """
+        🔄 Auto-train AI models if enough new labeled data is available.
+        
+        Conditions:
+        - At least 50 labeled samples
+        - At least 10 new samples since last train
+        
+        Call this periodically to keep models up-to-date!
+        """
+        logger.info("🔄 Auto-training AI models")
+        return client.post("api/ai/auto_train", {})
+    
+    @mcp.tool()
+    def ai_insights() -> Dict[str, Any]:
+        """
+        💡 Get smart insights from learning history.
+        
+        Returns:
+        - Most effective attack types (success rates)
+        - False positive patterns
+        - Recommendations for improvement
+        """
+        logger.info("💡 Getting AI insights")
+        return client.get("api/ai/insights")
+    
+    @mcp.tool()
+    def learning_stats() -> Dict[str, Any]:
+        """
+        📈 Get learning store statistics.
+        
+        Returns:
+        - Total findings stored
+        - Findings by type (secret, endpoint, attack)
+        - Labeled findings count
+        - Attack success rate by type
+        """
+        logger.info("📈 Getting learning stats")
+        return client.get("api/learning/stats")
+    
+    @mcp.tool()
+    def learning_list_findings(
+        finding_type: str = None,
+        label: str = None,
+        limit: int = 50
+    ) -> Dict[str, Any]:
+        """
+        📋 List findings from learning store.
+        
+        Args:
+            finding_type: "secret", "endpoint", "attack_result" (optional)
+            label: "true_positive", "false_positive", etc. (optional)
+            limit: Max results (default 50)
+        
+        Returns:
+        - List of findings with their labels
+        """
+        logger.info(f"📋 Listing findings: type={finding_type}, label={label}")
+        params = {"limit": limit}
+        if finding_type:
+            params["type"] = finding_type
+        if label:
+            params["label"] = label
+        return client.get("api/learning/findings", params)
+    
+    @mcp.tool()
+    def learning_label(
+        finding_id: str,
+        label: str,
+        notes: str = None
+    ) -> Dict[str, Any]:
+        """
+        🏷️ Label a finding for AI training.
+        
+        Args:
+            finding_id: ID of the finding (e.g., "secret_abc123")
+            label: One of: "true_positive", "false_positive", "needs_review", "confirmed_bug", "not_exploitable"
+            notes: Optional notes
+        
+        This feedback helps the AI learn and improve!
+        """
+        logger.info(f"🏷️ Labeling finding {finding_id} as {label}")
+        return client.post("api/learning/label", {
+            "finding_id": finding_id,
+            "label": label,
+            "notes": notes
+        })
+    
+    @mcp.tool()
+    def learning_export(path: str = "/tmp/hexstrike_learning.json") -> Dict[str, Any]:
+        """
+        💾 Export learning data to JSON file.
+        
+        Useful for:
+        - Backing up your training data
+        - Sharing learnings across machines
+        - Analysis and debugging
+        """
+        logger.info(f"💾 Exporting learning data to {path}")
+        return client.post("api/learning/export", {"path": path})
+    
     return mcp
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v4.0 - Consolidated")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v4.1 - Consolidated")
     parser.add_argument("--server", default=DEFAULT_SERVER)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -848,12 +1035,12 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
     
-    logger.info("👻 Starting SpectreWeb MCP v4.0 - Consolidated (57 tools)")
+    logger.info("👻 Starting SpectreWeb MCP v4.1 - Self-Learning AI (67 tools)")
     
     try:
         client = SpectreClient(args.server)
         mcp = setup_mcp_server(client)
-        logger.info("✅ MCP Ready - 57 tools loaded")
+        logger.info("✅ MCP Ready - 67 tools loaded")
         mcp.run()
     except Exception as e:
         logger.error(f"💥 {e}")

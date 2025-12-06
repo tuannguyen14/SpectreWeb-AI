@@ -643,6 +643,29 @@ class AttackSession:
                     )
                     results.append(result)
                     
+                    # ====== SELF-LEARNING: Record attack to LearningStore ======
+                    try:
+                        from core.learning_store import record_attack
+                        tech_stack = self.state.context.get("technologies", [])
+                        record_attack(
+                            target_url=self.target_url,
+                            endpoint_type=self.state.endpoint_type.value if self.state.endpoint_type else "unknown",
+                            tech_stack=tech_stack,
+                            attack_type=attack_type,
+                            payload=payload,
+                            payload_type=payload_type,
+                            status_code=result.status_code,
+                            response_length=result.response_length,
+                            response_time=result.response_time,
+                            interesting=result.interesting,
+                            findings=result.findings,
+                            severity=result.severity,
+                            injection_location=injection_location,
+                            waf_bypass_level=waf_bypass_level
+                        )
+                    except Exception:
+                        pass  # Don't break attacks if learning store fails
+                    
                     if result.interesting:
                         interesting_count += 1
                         self.state.findings.append(result)

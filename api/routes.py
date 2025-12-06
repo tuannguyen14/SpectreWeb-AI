@@ -66,7 +66,7 @@ def register_routes(app):
     def health():
         return jsonify({
             "status": "healthy",
-            "version": "3.2.0-spectreweb",
+            "version": "4.1.0-spectreweb",
             "cache_stats": cache.get_stats(),
             "telemetry": telemetry.get_stats(),
             "ai_stats": {
@@ -1681,4 +1681,63 @@ def register_routes(app):
         return jsonify({
             "success": success,
             "path": output_path
+        })
+    
+    @app.route("/api/ai/auto_train", methods=["POST"])
+    def ai_auto_train():
+        """
+        Automatically train models if enough labeled data is available.
+        
+        Conditions:
+        - At least 50 labeled samples
+        - At least 10 new samples since last train
+        """
+        orchestrator = get_orchestrator()
+        result = orchestrator.auto_train_if_ready()
+        return jsonify(result)
+    
+    @app.route("/api/ai/insights", methods=["GET"])
+    def ai_insights():
+        """
+        Get smart insights based on learning history.
+        
+        Returns:
+        - Most effective attack types
+        - Common false positive patterns
+        - Recommendations
+        """
+        orchestrator = get_orchestrator()
+        return jsonify(orchestrator.get_smart_insights())
+    
+    @app.route("/api/ai/filter_secrets", methods=["POST"])
+    def ai_filter_secrets():
+        """
+        Use local AI to filter/rank secrets by likelihood of being real.
+        
+        Input: {secrets: [{secret_type, entropy, ...}, ...]}
+        Output: Secrets sorted by is_real probability, with AI scores
+        """
+        secrets = request.json.get("secrets", [])
+        orchestrator = get_orchestrator()
+        
+        results = []
+        for secret in secrets:
+            response = orchestrator.classify_secret(secret)
+            if response.success:
+                results.append({
+                    **secret,
+                    "ai_score": response.result.get("score", 0.5),
+                    "ai_is_real": response.result.get("is_real", True),
+                    "ai_confidence": response.confidence,
+                    "model_used": response.result.get("model_used", "heuristic")
+                })
+        
+        # Sort by AI score descending (most likely real first)
+        results.sort(key=lambda x: x.get("ai_score", 0), reverse=True)
+        
+        return jsonify({
+            "filtered_secrets": results,
+            "total": len(results),
+            "likely_real": len([r for r in results if r.get("ai_is_real", True)]),
+            "likely_fp": len([r for r in results if not r.get("ai_is_real", True)])
         })
