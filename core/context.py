@@ -8,6 +8,7 @@ Maintains intelligent directory structure for multiple targets.
 import os
 import json
 import hashlib
+import threading
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from urllib.parse import urlparse
@@ -60,7 +61,7 @@ class TargetContext:
         """Extract root domain from target"""
         try:
             parsed = urlparse(target if '://' in target else f'https://{target}')
-            host = parsed.netloc or parsed.path.split('/')[0]
+            host = parsed.hostname or parsed.netloc or parsed.path.split('/')[0]
             parts = host.split('.')
             # Get root domain (last 2 parts for most TLDs)
             if len(parts) >= 2:
@@ -73,7 +74,7 @@ class TargetContext:
         """Extract subdomain if present"""
         try:
             parsed = urlparse(target if '://' in target else f'https://{target}')
-            host = parsed.netloc or parsed.path.split('/')[0]
+            host = parsed.hostname or parsed.netloc or parsed.path.split('/')[0]
             parts = host.split('.')
             if len(parts) > 2:
                 return '.'.join(parts[:-2])
@@ -287,16 +288,18 @@ class TargetContext:
         
         return recs[:5]
     
-    def save_scan_result(self, tool: str, result: Dict):
+    def save_scan_result(self, tool: str, result: Dict, target: Optional[str] = None):
         """Save scan result to organized directory"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{timestamp}_{tool}.json"
         filepath = os.path.join(self.base_dir, "scans", filename)
+
+        scan_target = target or result.get('url') or self.original_target
         
         scan_data = {
             "tool": tool,
             "timestamp": datetime.now().isoformat(),
-            "target": self.original_target,
+            "target": scan_target,
             "success": result.get('success', False),
             "result": result
         }
@@ -324,11 +327,14 @@ class TargetContext:
         for sub in subdomains:
             self.add_subdomain(sub)
     
-    def save_report(self, report_data: Dict):
+    def save_report(self, report_data: Dict, target: Optional[str] = None):
         """Save report to appropriate location"""
-        if self.subdomain:
+        effective_target = target or report_data.get("target") or report_data.get("url") or self.original_target
+        subdomain = self._extract_subdomain(effective_target) if effective_target else None
+
+        if subdomain:
             # Save to subdomain directory
-            sub_dir = os.path.join(self.base_dir, "subdomains", f"{self.subdomain}.{self.domain}")
+            sub_dir = os.path.join(self.base_dir, "subdomains", f"{subdomain}.{self.domain}")
             os.makedirs(sub_dir, exist_ok=True)
             report_path = os.path.join(sub_dir, "_report.json")
         else:
@@ -350,13 +356,26 @@ class TargetContext:
 
 # Global context cache
 _contexts: Dict[str, TargetContext] = {}
+_contexts_lock = threading.Lock()
+
+def _extract_root_domain(target: str) -> str:
+    try:
+        parsed = urlparse(target if '://' in target else f'https://{target}')
+        host = parsed.hostname or parsed.netloc or parsed.path.split('/')[0]
+        parts = host.split('.')
+        if len(parts) >= 2:
+            return '.'.join(parts[-2:])
+        return host
+    except:
+        return target
 
 def get_context(target: str) -> TargetContext:
     """Get or create context for target"""
-    domain = TargetContext(target).domain
-    if domain not in _contexts:
-        _contexts[domain] = TargetContext(target)
-    return _contexts[domain]
+    domain = _extract_root_domain(target)
+    with _contexts_lock:
+        if domain not in _contexts:
+            _contexts[domain] = TargetContext(target)
+        return _contexts[domain]
 
 def load_target_context(target: str) -> Dict[str, Any]:
     """

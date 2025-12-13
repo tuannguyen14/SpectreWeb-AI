@@ -54,10 +54,17 @@ from web.deep_secrets import (
     deep_secret_hunt, quick_secret_scan, scan_js_for_secrets,
     DeepSecretHunter, scan_local_secrets
 )
+from core.job_queue import get_job_queue, JobStatus
+from core.response import APIResponse, ErrorCode, set_request_id
+from web.rate_limiter import get_rate_limiter
 
 
 def register_routes(app):
     """Register all API routes"""
+
+    def _json():
+        data = request.get_json(silent=True)
+        return data if isinstance(data, dict) else {}
     
     # ==========================
     # HEALTH & STATUS
@@ -82,7 +89,7 @@ def register_routes(app):
     
     @app.route("/api/command", methods=["POST"])
     def command():
-        params = request.json
+        params = _json()
         cmd = params.get("command", "")
         if not cmd:
             return jsonify({"error": "Command required"}), 400
@@ -96,7 +103,7 @@ def register_routes(app):
     
     @app.route("/api/web/request", methods=["POST"])
     def web_request():
-        p = request.json
+        p = _json()
         if not p.get("url"):
             return jsonify({"error": "URL required"}), 400
         result = make_request(
@@ -109,7 +116,7 @@ def register_routes(app):
     
     @app.route("/api/web/extract", methods=["POST"])
     def web_extract():
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         html = p.get("html", "")
         
@@ -142,7 +149,7 @@ def register_routes(app):
     
     @app.route("/api/payload/encode", methods=["POST"])
     def payload_encode():
-        p = request.json
+        p = _json()
         return jsonify({
             "success": True,
             "original": p.get("payload", ""),
@@ -152,7 +159,7 @@ def register_routes(app):
     
     @app.route("/api/payload/decode", methods=["POST"])
     def payload_decode():
-        p = request.json
+        p = _json()
         return jsonify({
             "success": True,
             "decoded": decode_payload(p.get("payload", ""), p.get("encoding", "url"))
@@ -174,7 +181,7 @@ def register_routes(app):
     
     @app.route("/api/test/xss", methods=["POST"])
     def test_xss():
-        p = request.json
+        p = _json()
         url, param = p.get("url", ""), p.get("param", "")
         payloads = p.get("payloads") or XSS_PAYLOADS[:5]
         
@@ -192,7 +199,7 @@ def register_routes(app):
     
     @app.route("/api/test/sqli", methods=["POST"])
     def test_sqli():
-        p = request.json
+        p = _json()
         url, param = p.get("url", ""), p.get("param", "")
         payloads = p.get("payloads") or SQLI_PAYLOADS[:5]
         
@@ -210,7 +217,7 @@ def register_routes(app):
     
     @app.route("/api/test/lfi", methods=["POST"])
     def test_lfi():
-        p = request.json
+        p = _json()
         url, param = p.get("url", ""), p.get("param", "")
         payloads = p.get("payloads") or LFI_PAYLOADS[:5]
         
@@ -239,7 +246,7 @@ def register_routes(app):
     
     @app.route("/api/wordlists/suggest", methods=["POST"])
     def suggest_wordlists():
-        task = request.json.get("task", "")
+        task = _json().get("task", "")
         return jsonify({"success": True, "task": task, "suggestions": suggest_wordlist(task)})
     
     @app.route("/api/wordlists/preview/<name>", methods=["GET"])
@@ -264,7 +271,7 @@ def register_routes(app):
     
     @app.route("/api/tools/nmap", methods=["POST"])
     def nmap():
-        p = request.json
+        p = _json()
         cmd = f"nmap {p.get('scan_type', '-sV')}"
         if p.get("ports"): cmd += f" -p {p['ports']}"
         if p.get("additional_args"): cmd += f" {p['additional_args']}"
@@ -273,7 +280,7 @@ def register_routes(app):
     
     @app.route("/api/tools/ffuf", methods=["POST"])
     def ffuf():
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if "FUZZ" not in url: url = url.rstrip("/") + "/FUZZ"
         
@@ -301,7 +308,7 @@ def register_routes(app):
     
     @app.route("/api/tools/subfinder", methods=["POST"])
     def subfinder():
-        p = request.json
+        p = _json()
         domain = p.get('domain', '').strip()
         if not domain:
             return jsonify({"success": False, "error": "Domain is required"})
@@ -318,7 +325,7 @@ def register_routes(app):
     
     @app.route("/api/tools/sqlmap", methods=["POST"])
     def sqlmap():
-        p = request.json
+        p = _json()
         cmd = f"sqlmap -u \"{p.get('url', '')}\" --batch"
         if p.get("data"): cmd += f" --data=\"{p['data']}\""
         if p.get("additional_args"): cmd += f" {p['additional_args']}"
@@ -326,13 +333,13 @@ def register_routes(app):
     
     @app.route("/api/tools/whatweb", methods=["POST"])
     def whatweb():
-        p = request.json
+        p = _json()
         cmd = f"whatweb {p.get('additional_args', '-a 3')} {p.get('url', '')}"
         return _run_tool("whatweb", cmd)
     
     @app.route("/api/tools/httpx", methods=["POST"])
     def httpx():
-        p = request.json
+        p = _json()
         target = p.get('target', '').strip()
         additional_args = p.get('additional_args', '')
         
@@ -366,7 +373,7 @@ def register_routes(app):
     
     @app.route("/api/tools/katana", methods=["POST"])
     def katana():
-        p = request.json
+        p = _json()
         url = p.get('url', '').strip()
         if not url:
             return jsonify({"success": False, "error": "URL is required"})
@@ -389,7 +396,7 @@ def register_routes(app):
     
     @app.route("/api/tools/waybackurls", methods=["POST"])
     def waybackurls():
-        p = request.json
+        p = _json()
         limit = p.get("limit", 0)
         cmd = f"echo {p.get('domain', '')} | waybackurls"
         if p.get("additional_args"): 
@@ -404,7 +411,7 @@ def register_routes(app):
     
     @app.route("/api/tools/gau", methods=["POST"])
     def gau():
-        p = request.json
+        p = _json()
         limit = p.get("limit", 0)
         cmd = f"echo {p.get('domain', '')} | gau"
         if p.get("providers"): cmd += f" --providers {p['providers']}"
@@ -416,7 +423,7 @@ def register_routes(app):
     
     @app.route("/api/tools/arjun", methods=["POST"])
     def arjun():
-        p = request.json
+        p = _json()
         cmd = f"arjun -u {p.get('url', '')} -m {p.get('method', 'GET')}"
         if p.get("wordlist"): cmd += f" -w {p['wordlist']}"
         return _run_tool("arjun", cmd)
@@ -428,7 +435,7 @@ def register_routes(app):
     @app.route("/api/tools/dalfox", methods=["POST"])
     def dalfox():
         """Dalfox - Advanced XSS scanner"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
@@ -443,7 +450,7 @@ def register_routes(app):
     @app.route("/api/tools/naabu", methods=["POST"])
     def naabu():
         """Naabu - Fast port scanner"""
-        p = request.json
+        p = _json()
         target = p.get("target", "").strip()
         if not target:
             return jsonify({"success": False, "error": "Target required"})
@@ -465,7 +472,7 @@ def register_routes(app):
     @app.route("/api/analyze/jwt", methods=["POST"])
     def jwt_analyze():
         """Decode and analyze JWT token for vulnerabilities"""
-        p = request.json
+        p = _json()
         token = p.get("token", "")
         if not token:
             return jsonify({"error": "JWT token required"}), 400
@@ -474,7 +481,7 @@ def register_routes(app):
     @app.route("/api/analyze/hash", methods=["POST"])
     def hash_analyze():
         """Identify hash type"""
-        p = request.json
+        p = _json()
         hash_str = p.get("hash", "")
         if not hash_str:
             return jsonify({"error": "Hash required"}), 400
@@ -483,7 +490,7 @@ def register_routes(app):
     @app.route("/api/analyze/hash/generate", methods=["POST"])
     def hash_generate():
         """Generate common hashes for a string"""
-        p = request.json
+        p = _json()
         text = p.get("text", "")
         if not text:
             return jsonify({"error": "Text required"}), 400
@@ -492,7 +499,7 @@ def register_routes(app):
     @app.route("/api/analyze/cors", methods=["POST"])
     def cors_analyze():
         """Test CORS configuration"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         test_origin = p.get("origin", "https://evil.com")
         
@@ -514,7 +521,7 @@ def register_routes(app):
     @app.route("/api/analyze/idor", methods=["POST"])
     def idor_analyze():
         """Detect potential IDOR parameters in URL"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
@@ -523,7 +530,7 @@ def register_routes(app):
     @app.route("/api/analyze/compare", methods=["POST"])
     def response_compare():
         """Compare two responses for differences (useful for auth bypass testing)"""
-        p = request.json
+        p = _json()
         url1, url2 = p.get("url1", ""), p.get("url2", "")
         headers1, headers2 = p.get("headers1", {}), p.get("headers2", {})
         
@@ -541,7 +548,7 @@ def register_routes(app):
     @app.route("/api/test/ssrf", methods=["POST"])
     def test_ssrf():
         """Quick SSRF testing"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         param = p.get("param", "")
         
@@ -578,7 +585,7 @@ def register_routes(app):
         """Race condition testing - send multiple concurrent requests"""
         import concurrent.futures
         
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         method = p.get("method", "GET")
         data = p.get("data")
@@ -623,12 +630,12 @@ def register_routes(app):
     
     @app.route("/api/files/create", methods=["POST"])
     def create_file():
-        p = request.json
+        p = _json()
         return jsonify(file_manager.create_file(p.get("filename", ""), p.get("content", ""), p.get("binary", False)))
     
     @app.route("/api/files/read", methods=["POST"])
     def read_file():
-        return jsonify(file_manager.read_file(request.json.get("filename", "")))
+        return jsonify(file_manager.read_file(_json().get("filename", "")))
     
     @app.route("/api/files/list", methods=["GET"])
     def list_files():
@@ -641,7 +648,7 @@ def register_routes(app):
     @app.route("/api/report/get", methods=["POST"])
     def report_get():
         """Get or create report for target"""
-        target = request.json.get("target", "")
+        target = _json().get("target", "")
         if not target:
             return jsonify({"error": "Target required"}), 400
         
@@ -655,7 +662,7 @@ def register_routes(app):
     @app.route("/api/report/finding", methods=["POST"])
     def report_finding():
         """Add finding to report"""
-        p = request.json
+        p = _json()
         target = p.get("target", "")
         if not target:
             return jsonify({"error": "Target required"}), 400
@@ -682,7 +689,7 @@ def register_routes(app):
     @app.route("/api/report/note", methods=["POST"])
     def report_note():
         """Add note to report"""
-        p = request.json
+        p = _json()
         target = p.get("target", "")
         note = p.get("note", "")
         
@@ -702,7 +709,7 @@ def register_routes(app):
     @app.route("/api/report/next", methods=["POST"])
     def report_next():
         """Get suggested next steps"""
-        target = request.json.get("target", "")
+        target = _json().get("target", "")
         if not target:
             return jsonify({"error": "Target required"}), 400
         
@@ -722,7 +729,7 @@ def register_routes(app):
     @app.route("/api/report/summary", methods=["POST"])
     def report_summary():
         """Get report summary for AI"""
-        target = request.json.get("target", "")
+        target = _json().get("target", "")
         if not target:
             return jsonify({"error": "Target required"}), 400
         
@@ -744,7 +751,7 @@ def register_routes(app):
         Load context for target - AI should call this FIRST before scanning.
         Returns briefing with previous findings, subdomains, notes, recommendations.
         """
-        target = request.json.get("target", "")
+        target = _json().get("target", "")
         if not target:
             return jsonify({"error": "Target required"}), 400
         
@@ -758,7 +765,7 @@ def register_routes(app):
     @app.route("/api/context/save_scan", methods=["POST"])
     def context_save_scan():
         """Save scan result to target context"""
-        p = request.json
+        p = _json()
         target = p.get("target", "")
         tool = p.get("tool", "")
         result = p.get("result", {})
@@ -767,7 +774,7 @@ def register_routes(app):
             return jsonify({"error": "Target and tool required"}), 400
         
         ctx = get_context(target)
-        filepath = ctx.save_scan_result(tool, result)
+        filepath = ctx.save_scan_result(tool, result, target=target)
         
         # Auto-extract subdomains if present
         if 'stdout' in result:
@@ -789,7 +796,7 @@ def register_routes(app):
     @app.route("/api/exploit/auth_bypass", methods=["POST"])
     def exploit_auth_bypass():
         """Generate auth bypass test cases"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         endpoint = p.get("endpoint", "/admin")
         
@@ -808,7 +815,7 @@ def register_routes(app):
     @app.route("/api/exploit/waf_bypass", methods=["POST"])
     def exploit_waf_bypass():
         """Generate WAF bypass variants for a payload"""
-        payload = request.json.get("payload", "")
+        payload = _json().get("payload", "")
         if not payload:
             return jsonify({"error": "Payload required"}), 400
         
@@ -835,7 +842,7 @@ def register_routes(app):
     @app.route("/api/exploit/cache_poison", methods=["POST"])
     def exploit_cache_poison():
         """Generate cache poisoning test cases"""
-        url = request.json.get("url", "")
+        url = _json().get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
         
@@ -865,7 +872,7 @@ def register_routes(app):
     @app.route("/api/ai/analyze", methods=["POST"])
     def ai_analyze():
         """AI-powered analysis of scan results"""
-        p = request.json
+        p = _json()
         tool = p.get("tool", "unknown")
         result = p.get("result", {})
         
@@ -882,7 +889,7 @@ def register_routes(app):
     @app.route("/api/ai/detect_tech", methods=["POST"])
     def ai_detect_tech():
         """Detect technologies from response"""
-        p = request.json
+        p = _json()
         response = p.get("response", "")
         headers = p.get("headers", {})
         
@@ -905,8 +912,9 @@ def register_routes(app):
     @app.route("/api/ai/classify", methods=["POST"])
     def ai_classify():
         """Classify endpoint and suggest attack vectors"""
-        url = request.json.get("url", "")
-        method = request.json.get("method", "GET")
+        p = _json()
+        url = p.get("url", "")
+        method = p.get("method", "GET")
         
         endpoint_type = classify_endpoint(url, method)
         vectors = get_attack_vectors(endpoint_type)
@@ -921,7 +929,7 @@ def register_routes(app):
     @app.route("/api/ai/vuln_scan", methods=["POST"])
     def ai_vuln_scan():
         """Scan response for vulnerabilities"""
-        p = request.json
+        p = _json()
         response = p.get("response", "")
         url = p.get("url", "")
         
@@ -952,7 +960,7 @@ def register_routes(app):
     @app.route("/api/ai/hints", methods=["POST"])
     def ai_hints():
         """Get AI hints based on context"""
-        context = request.json
+        context = _json()
         hints = analyzer.get_ai_hints(context)
         return jsonify({
             "success": True,
@@ -969,7 +977,7 @@ def register_routes(app):
         Scan content for hardcoded secrets.
         Detects: AWS keys, API tokens, passwords, private keys, etc.
         """
-        p = request.json
+        p = _json()
         content = p.get("content", "")
         source = p.get("source", "unknown")
         
@@ -985,7 +993,7 @@ def register_routes(app):
         Specialized JavaScript secret scanner.
         Looks for secrets in config objects, env vars, headers.
         """
-        p = request.json
+        p = _json()
         js_content = p.get("content", "")
         source = p.get("source", "javascript")
         
@@ -998,7 +1006,7 @@ def register_routes(app):
     @app.route("/api/secrets/scan_url", methods=["POST"])
     def secrets_scan_url():
         """Scan URL for secrets in query parameters"""
-        url = request.json.get("url", "")
+        url = _json().get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
         
@@ -1011,7 +1019,7 @@ def register_routes(app):
         Fetch URL and scan response for secrets.
         Useful for scanning JS files from CDN.
         """
-        url = request.json.get("url", "")
+        url = _json().get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
         
@@ -1047,7 +1055,7 @@ def register_routes(app):
     @app.route("/api/secrets/entropy", methods=["POST"])
     def secrets_entropy():
         """Calculate entropy of a string to detect potential secrets"""
-        text = request.json.get("text", "")
+        text = _json().get("text", "")
         if not text:
             return jsonify({"error": "Text required"}), 400
         
@@ -1061,7 +1069,7 @@ def register_routes(app):
     @app.route("/api/scan/takeover", methods=["POST"])
     def scan_takeover():
         """Check subdomain for takeover vulnerability"""
-        subdomain = request.json.get("subdomain", "")
+        subdomain = _json().get("subdomain", "")
         if not subdomain:
             return jsonify({"error": "Subdomain required"}), 400
         
@@ -1071,7 +1079,7 @@ def register_routes(app):
     @app.route("/api/scan/takeover/bulk", methods=["POST"])
     def scan_takeover_bulk():
         """Bulk subdomain takeover check"""
-        subdomains = request.json.get("subdomains", [])
+        subdomains = _json().get("subdomains", [])
         if not subdomains:
             return jsonify({"error": "Subdomains list required"}), 400
         
@@ -1081,7 +1089,7 @@ def register_routes(app):
     @app.route("/api/scan/redirect", methods=["POST"])
     def scan_redirect():
         """Test for open redirect vulnerabilities"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
@@ -1092,17 +1100,18 @@ def register_routes(app):
     @app.route("/api/scan/crlf", methods=["POST"])
     def scan_crlf():
         """Test for CRLF injection vulnerabilities"""
-        url = request.json.get("url", "")
+        p = _json()
+        url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
         
-        result = test_crlf_injection(url, request.json.get("param", ""))
+        result = test_crlf_injection(url, p.get("param", ""))
         return jsonify(result)
     
     @app.route("/api/scan/headers", methods=["POST"])
     def scan_headers():
         """Test for header injection vulnerabilities"""
-        url = request.json.get("url", "")
+        url = _json().get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
         
@@ -1112,7 +1121,7 @@ def register_routes(app):
     @app.route("/api/scan/js_endpoints", methods=["POST"])
     def scan_js_endpoints():
         """Extract endpoints from JavaScript content"""
-        p = request.json
+        p = _json()
         js_content = p.get("content", "")
         base_url = p.get("base_url", "")
         
@@ -1125,7 +1134,7 @@ def register_routes(app):
     @app.route("/api/scan/js_files", methods=["POST"])
     def scan_multiple_js():
         """Fetch and scan multiple JS files for endpoints"""
-        urls = request.json.get("urls", [])
+        urls = _json().get("urls", [])
         if not urls:
             return jsonify({"error": "JS URLs required"}), 400
         
@@ -1135,7 +1144,7 @@ def register_routes(app):
     @app.route("/api/scan/params", methods=["POST"])
     def scan_params():
         """Discover hidden parameters"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
@@ -1146,7 +1155,7 @@ def register_routes(app):
     @app.route("/api/scan/quick", methods=["POST"])
     def scan_quick_vuln():
         """Quick vulnerability scan (redirect, CRLF, headers)"""
-        url = request.json.get("url", "")
+        url = _json().get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
         
@@ -1160,7 +1169,7 @@ def register_routes(app):
     @app.route("/api/attack/race", methods=["POST"])
     def attack_race():
         """Test for race condition vulnerabilities"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
@@ -1177,11 +1186,11 @@ def register_routes(app):
     @app.route("/api/attack/graphql", methods=["POST"])
     def attack_graphql():
         """Test GraphQL endpoint for vulnerabilities"""
-        url = request.json.get("url", "")
+        url = _json().get("url", "")
         if not url:
             return jsonify({"error": "GraphQL URL required"}), 400
         
-        result = test_graphql_endpoint(url, request.json.get("headers"))
+        result = test_graphql_endpoint(url, _json().get("headers"))
         return jsonify(result)
     
     @app.route("/api/attack/xxe", methods=["GET"])
@@ -1194,7 +1203,7 @@ def register_routes(app):
     @app.route("/api/attack/jwt/none", methods=["POST"])
     def attack_jwt_none():
         """Generate JWT none algorithm attack tokens"""
-        token = request.json.get("token", "")
+        token = _json().get("token", "")
         if not token:
             return jsonify({"error": "JWT token required"}), 400
         
@@ -1204,7 +1213,7 @@ def register_routes(app):
     @app.route("/api/attack/jwt/confusion", methods=["POST"])
     def attack_jwt_confusion():
         """Generate JWT algorithm confusion attack tokens"""
-        p = request.json
+        p = _json()
         token = p.get("token", "")
         if not token:
             return jsonify({"error": "JWT token required"}), 400
@@ -1215,7 +1224,7 @@ def register_routes(app):
     @app.route("/api/attack/jwt/inject", methods=["POST"])
     def attack_jwt_inject():
         """Generate JWT claim injection variants"""
-        p = request.json
+        p = _json()
         token = p.get("token", "")
         if not token:
             return jsonify({"error": "JWT token required"}), 400
@@ -1234,7 +1243,7 @@ def register_routes(app):
     @app.route("/api/attack/dom_xss", methods=["POST"])
     def attack_dom_xss():
         """Analyze JavaScript for DOM XSS vulnerabilities"""
-        js_content = request.json.get("content", "")
+        js_content = _json().get("content", "")
         if not js_content:
             return jsonify({"error": "JavaScript content required"}), 400
         
@@ -1269,7 +1278,7 @@ def register_routes(app):
     @app.route("/api/manual/mutate", methods=["POST"])
     def manual_mutate_payload():
         """Mutate a payload using various techniques"""
-        p = request.json
+        p = _json()
         payload = p.get("payload", "")
         techniques = p.get("techniques", ["case", "encode", "whitespace", "comments"])
         
@@ -1296,7 +1305,7 @@ def register_routes(app):
     @app.route("/api/manual/waf-bypass", methods=["POST"])
     def manual_waf_bypass():
         """Generate WAF bypass variations for a payload"""
-        payload = request.json.get("payload", "")
+        payload = _json().get("payload", "")
         bypasses = generate_waf_bypass_payloads(payload)
         return jsonify({
             "success": True,
@@ -1308,7 +1317,7 @@ def register_routes(app):
     @app.route("/api/manual/rate-limit", methods=["POST"])
     def manual_rate_limit():
         """Test rate limiting on an endpoint"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         count = p.get("count", 20)
         delay = p.get("delay", 0.1)
@@ -1322,7 +1331,7 @@ def register_routes(app):
     @app.route("/api/manual/diff", methods=["POST"])
     def manual_diff_responses():
         """Compare two HTTP responses"""
-        p = request.json
+        p = _json()
         resp1 = p.get("response1", {})
         resp2 = p.get("response2", {})
         
@@ -1332,7 +1341,7 @@ def register_routes(app):
     @app.route("/api/manual/idor", methods=["POST"])
     def manual_idor_tests():
         """Generate IDOR test cases for a parameter value"""
-        value = request.json.get("value", "")
+        value = _json().get("value", "")
         tests = generate_idor_tests(value)
         return jsonify({
             "success": True,
@@ -1356,7 +1365,7 @@ def register_routes(app):
     @app.route("/api/manual/auth-bypass", methods=["POST"])
     def manual_auth_bypass():
         """Generate authentication bypass test cases"""
-        endpoint = request.json.get("endpoint", "/admin")
+        endpoint = _json().get("endpoint", "/admin")
         tests = generate_auth_bypass_tests(endpoint)
         return jsonify({
             "success": True,
@@ -1368,14 +1377,14 @@ def register_routes(app):
     @app.route("/api/manual/analyze-error", methods=["POST"])
     def manual_analyze_error():
         """Analyze error response for information disclosure"""
-        response = request.json.get("response", {})
+        response = _json().get("response", {})
         analysis = analyze_error_response(response)
         return jsonify({"success": True, **analysis})
     
     @app.route("/api/manual/extract-secrets", methods=["POST"])
     def manual_extract_secrets():
         """Extract secrets from HTTP response"""
-        response = request.json.get("response", {})
+        response = _json().get("response", {})
         secrets = extract_secrets_from_response(response)
         return jsonify({
             "success": True,
@@ -1386,7 +1395,7 @@ def register_routes(app):
     @app.route("/api/manual/suggest", methods=["POST"])
     def manual_suggest_tests():
         """Suggest next tests based on findings"""
-        findings = request.json.get("findings", [])
+        findings = _json().get("findings", [])
         suggestions = suggest_next_tests(findings)
         return jsonify({
             "success": True,
@@ -1406,7 +1415,7 @@ def register_routes(app):
         Input: {url, auth_headers?, cookies?}
         Returns: Session info with fingerprinting and suggestions
         """
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
@@ -1439,7 +1448,7 @@ def register_routes(app):
         if not session:
             return jsonify({"error": "Session not found"}), 404
         
-        p = request.json
+        p = _json()
         result = session.run_attack(
             attack_type=p.get("attack_type", "injection"),
             params=p.get("params"),
@@ -1457,7 +1466,7 @@ def register_routes(app):
         if not session:
             return jsonify({"error": "Session not found"}), 404
         
-        p = request.json
+        p = _json()
         result = session.run_idor_test(
             id_param=p.get("param", "id"),
             current_value=p.get("value", "1")
@@ -1471,7 +1480,7 @@ def register_routes(app):
         if not session:
             return jsonify({"error": "Session not found"}), 404
         
-        endpoint = request.json.get("endpoint")
+        endpoint = _json().get("endpoint")
         result = session.run_auth_bypass_test(endpoint)
         return jsonify(result)
     
@@ -1491,7 +1500,7 @@ def register_routes(app):
         
         Input: {url, attack_types?, intensity?}
         """
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
@@ -1506,7 +1515,7 @@ def register_routes(app):
     @app.route("/api/attack/fingerprint", methods=["POST"])
     def attack_fingerprint():
         """Fingerprint an endpoint to determine type and suggest attacks"""
-        p = request.json
+        p = _json()
         url = p.get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
@@ -1537,7 +1546,7 @@ def register_routes(app):
         
         Input: {domain, max_urls?, max_js?, stages?}
         """
-        p = request.json
+        p = _json()
         domain = p.get("domain", "")
         if not domain:
             return jsonify({"error": "Domain required"}), 400
@@ -1558,7 +1567,7 @@ def register_routes(app):
         
         Input: {paths: ["/path/to/project", "/path/to/file.env"]}
         """
-        paths = request.json.get("paths", [])
+        paths = _json().get("paths", [])
         if not paths:
             return jsonify({"error": "Paths required"}), 400
         
@@ -1568,7 +1577,7 @@ def register_routes(app):
     @app.route("/api/secrets/quick", methods=["POST"])
     def secrets_quick_scan():
         """Quick scan a single URL for secrets"""
-        url = request.json.get("url", "")
+        url = _json().get("url", "")
         if not url:
             return jsonify({"error": "URL required"}), 400
         
@@ -1582,7 +1591,7 @@ def register_routes(app):
         
         Input: {urls: []}
         """
-        urls = request.json.get("urls", [])
+        urls = _json().get("urls", [])
         if not urls:
             return jsonify({"error": "JS URLs required"}), 400
         
@@ -1611,7 +1620,7 @@ def register_routes(app):
     @app.route("/api/ai/classify_secret", methods=["POST"])
     def ai_classify_secret():
         """Classify a secret as real or false positive using local AI"""
-        features = request.json
+        features = _json()
         orchestrator = get_orchestrator()
         response = orchestrator.classify_secret(features)
         return jsonify(response.to_dict())
@@ -1619,7 +1628,7 @@ def register_routes(app):
     @app.route("/api/ai/score_endpoint", methods=["POST"])
     def ai_score_endpoint():
         """Score an endpoint's vulnerability risk using local AI"""
-        features = request.json
+        features = _json()
         orchestrator = get_orchestrator()
         response = orchestrator.score_endpoint(features)
         return jsonify(response.to_dict())
@@ -1627,7 +1636,7 @@ def register_routes(app):
     @app.route("/api/ai/rank_payloads", methods=["POST"])
     def ai_rank_payloads():
         """Rank payloads by predicted effectiveness"""
-        data = request.json
+        data = _json()
         payloads = data.get("payloads", [])
         context = data.get("context", {})
         
@@ -1667,7 +1676,7 @@ def register_routes(app):
     @app.route("/api/learning/label", methods=["POST"])
     def learning_label_finding():
         """Label a finding for training"""
-        data = request.json
+        data = _json()
         finding_id = data.get("finding_id")
         label = data.get("label")
         notes = data.get("notes")
@@ -1694,7 +1703,7 @@ def register_routes(app):
     @app.route("/api/learning/export", methods=["POST"])
     def learning_export():
         """Export learning data to JSON"""
-        output_path = request.json.get("path", "/tmp/spectreweb_learning_export.json")
+        output_path = _json().get("path", "/tmp/spectreweb_learning_export.json")
         store = get_store()
         success = store.export_to_json(output_path)
         
@@ -1737,7 +1746,7 @@ def register_routes(app):
         Input: {secrets: [{secret_type, entropy, ...}, ...]}
         Output: Secrets sorted by is_real probability, with AI scores
         """
-        secrets = request.json.get("secrets", [])
+        secrets = _json().get("secrets", [])
         orchestrator = get_orchestrator()
         
         results = []
@@ -1761,3 +1770,83 @@ def register_routes(app):
             "likely_real": len([r for r in results if r.get("ai_is_real", True)]),
             "likely_fp": len([r for r in results if not r.get("ai_is_real", True)])
         })
+
+    # ==========================
+    # JOB QUEUE
+    # ==========================
+    
+    @app.route("/api/jobs", methods=["GET"])
+    def list_jobs():
+        """List background jobs"""
+        target = request.args.get("target")
+        status = request.args.get("status")
+        limit = int(request.args.get("limit", 50))
+        
+        status_enum = None
+        if status:
+            try:
+                status_enum = JobStatus(status)
+            except ValueError:
+                pass
+        
+        queue = get_job_queue()
+        jobs = queue.list_jobs(target=target, status=status_enum, limit=limit)
+        return jsonify({"jobs": jobs, "total": len(jobs)})
+    
+    @app.route("/api/jobs/<job_id>", methods=["GET"])
+    def get_job(job_id):
+        """Get job status"""
+        queue = get_job_queue()
+        status = queue.get_status(job_id)
+        if not status:
+            return jsonify({"error": "Job not found"}), 404
+        return jsonify(status)
+    
+    @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
+    def cancel_job(job_id):
+        """Cancel a running job"""
+        queue = get_job_queue()
+        if queue.cancel(job_id):
+            return jsonify({"success": True, "message": "Cancellation requested"})
+        return jsonify({"error": "Job not found or already completed"}), 400
+    
+    @app.route("/api/jobs/stats", methods=["GET"])
+    def job_stats():
+        """Get job queue statistics"""
+        queue = get_job_queue()
+        return jsonify(queue.get_stats())
+
+    # ==========================
+    # RATE LIMITER
+    # ==========================
+    
+    @app.route("/api/rate-limit/stats", methods=["GET"])
+    def rate_limit_stats():
+        """Get rate limiter statistics"""
+        limiter = get_rate_limiter()
+        return jsonify(limiter.get_stats())
+    
+    @app.route("/api/rate-limit/configure", methods=["POST"])
+    def configure_rate_limit():
+        """Configure rate limit for a domain"""
+        params = _json()
+        domain = params.get("domain")
+        if not domain:
+            return jsonify({"error": "Domain required"}), 400
+        
+        limiter = get_rate_limiter()
+        limiter.configure_domain(
+            domain,
+            requests_per_second=params.get("requests_per_second"),
+            burst_size=params.get("burst_size")
+        )
+        return jsonify({"success": True, "domain": domain})
+    
+    @app.route("/api/rate-limit/reset", methods=["POST"])
+    def reset_rate_limit():
+        """Reset rate limiter state"""
+        params = _json()
+        domain = params.get("domain")
+        limiter = get_rate_limiter()
+        limiter.reset(domain)
+        return jsonify({"success": True})

@@ -6,6 +6,7 @@ AI-powered analysis engine for intelligent vulnerability detection
 
 import re
 import json
+import threading
 from typing import Dict, Any, List, Tuple, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -214,6 +215,7 @@ class SmartAnalyzer:
         self.technologies: List[str] = []
         self.insights: List[AIInsight] = []
         self.scan_history: List[Dict] = []
+        self._lock = threading.Lock()
     
     # ==================== TECHNOLOGY DETECTION ====================
     
@@ -229,8 +231,9 @@ class SmartAnalyzer:
             for pattern in tech.patterns:
                 if re.search(pattern, combined, re.IGNORECASE):
                     detected.append(tech)
-                    if tech.name not in self.technologies:
-                        self.technologies.append(tech.name)
+                    with self._lock:
+                        if tech.name not in self.technologies:
+                            self.technologies.append(tech.name)
                     break
         
         return detected
@@ -280,7 +283,8 @@ class SmartAnalyzer:
                         "timestamp": datetime.now().isoformat()
                     }
                     findings.append(finding)
-                    self.findings.append(finding)
+                    with self._lock:
+                        self.findings.append(finding)
         
         return findings
     

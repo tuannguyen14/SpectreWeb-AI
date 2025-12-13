@@ -169,10 +169,10 @@ def mutate_payload(payload: str, techniques: List[str] = None) -> List[str]:
     if "concat" in techniques:
         # For SQL
         if "'" in payload:
-            mutations.append(payload.replace("'", "'+'")),
-            mutations.append(payload.replace("'", "'||'")),
+            mutations.append(payload.replace("'", "'+'"))
+            mutations.append(payload.replace("'", "'||'"))
         # For JS
-        mutations.append(payload.replace('"', '"+""+"')),
+        mutations.append(payload.replace('"', '"+""+"'))
     
     if "double" in techniques:
         mutations.append(urllib.parse.quote(urllib.parse.quote(payload)))

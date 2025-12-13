@@ -1012,14 +1012,25 @@ def create_attack_session(
     result = session.start()
     
     # Store session for later retrieval
-    _active_sessions[session.session_id] = session
+    now = time.time()
+    with _active_sessions_lock:
+        _cleanup_expired_sessions(now)
+        _active_sessions[session.session_id] = session
+        _active_sessions_created_at[session.session_id] = now
+        _active_sessions_last_access[session.session_id] = now
     
     return result
 
 
 def get_session(session_id: str) -> Optional[AttackSession]:
     """Retrieve an active session by ID"""
-    return _active_sessions.get(session_id)
+    now = time.time()
+    with _active_sessions_lock:
+        _cleanup_expired_sessions(now)
+        session = _active_sessions.get(session_id)
+        if session is not None:
+            _active_sessions_last_access[session_id] = now
+        return session
 
 
 def run_quick_attack(
@@ -1055,4 +1066,19 @@ def run_quick_attack(
 
 
 # Session storage
+_ACTIVE_SESSION_TTL_SECONDS = 60 * 60
 _active_sessions: Dict[str, AttackSession] = {}
+_active_sessions_created_at: Dict[str, float] = {}
+_active_sessions_last_access: Dict[str, float] = {}
+_active_sessions_lock = threading.Lock()
+
+def _cleanup_expired_sessions(now: Optional[float] = None):
+    now = time.time() if now is None else now
+    expired_ids = [
+        sid for sid, last in _active_sessions_last_access.items()
+        if (now - last) > _ACTIVE_SESSION_TTL_SECONDS
+    ]
+    for sid in expired_ids:
+        _active_sessions.pop(sid, None)
+        _active_sessions_created_at.pop(sid, None)
+        _active_sessions_last_access.pop(sid, None)
