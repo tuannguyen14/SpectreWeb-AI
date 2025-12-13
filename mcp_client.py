@@ -127,9 +127,21 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         return client.post("api/tools/whatweb", {"url": url, "additional_args": additional_args})
     
     @mcp.tool()
-    def ffuf_scan(url: str, wordlist: str = "", match_codes: str = "200,301,302,403", additional_args: str = "") -> Dict[str, Any]:
-        """FFuf web fuzzing for directory/file discovery."""
-        return client.post("api/tools/ffuf", {"url": url, "wordlist": wordlist, "match_codes": match_codes, "additional_args": additional_args})
+    def ffuf_scan(url: str, wordlist: str = "", match_codes: str = "200,301,302,403", headers: dict = None, additional_args: str = "") -> Dict[str, Any]:
+        """
+        FFuf web fuzzing for directory/file discovery.
+        
+        Args:
+            url: Target URL (use FUZZ keyword)
+            wordlist: Path to wordlist
+            match_codes: Comma-separated status codes to match
+            headers: Dict of headers to include (safer than additional_args)
+            additional_args: Raw arguments (use carefully)
+        """
+        return client.post("api/tools/ffuf", {
+            "url": url, "wordlist": wordlist, "match_codes": match_codes, 
+            "headers": headers, "additional_args": additional_args
+        })
     
     @mcp.tool()
     def katana_crawl(url: str, depth: int = 2, js_crawl: bool = True, additional_args: str = "") -> Dict[str, Any]:

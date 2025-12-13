@@ -1,5 +1,6 @@
 """Flask API Routes"""
 import re
+import shlex
 from flask import request, jsonify
 
 from core.executor import execute_command
@@ -275,8 +276,27 @@ def register_routes(app):
         p = request.json
         url = p.get("url", "")
         if "FUZZ" not in url: url = url.rstrip("/") + "/FUZZ"
-        cmd = f"ffuf -u {url} -w {p.get('wordlist', '/usr/share/wordlists/dirb/common.txt')} -mc {p.get('match_codes', '200,301,302,403')}"
-        if p.get("additional_args"): cmd += f" {p['additional_args']}"
+        
+        # Build base command
+        wordlist = p.get('wordlist', '/usr/share/wordlists/dirb/common.txt')
+        match_codes = p.get('match_codes', '200,301,302,403')
+        cmd = f"ffuf -u {url} -w {wordlist} -mc {match_codes}"
+        
+        # Add headers safely
+        headers = p.get("headers")
+        if headers:
+            if isinstance(headers, str):
+                # Try to parse string headers or just add safely
+                cmd += f" -H {shlex.quote(headers)}"
+            elif isinstance(headers, dict):
+                for k, v in headers.items():
+                    header_val = f"{k}: {v}"
+                    cmd += f" -H {shlex.quote(header_val)}"
+        
+        # Add additional args (legacy support)
+        if p.get("additional_args"): 
+            cmd += f" {p['additional_args']}"
+            
         return _run_tool("ffuf", cmd)
     
     @app.route("/api/tools/subfinder", methods=["POST"])
