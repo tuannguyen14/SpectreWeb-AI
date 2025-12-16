@@ -36,28 +36,27 @@ class DomainBucket:
             True if tokens acquired, False if timeout
         """
         deadline = time.time() + timeout
-        
-        with self.lock:
-            while True:
+
+        while True:
+            now = time.time()
+            if now >= deadline:
+                return False
+
+            with self.lock:
                 self.refill()
-                
+
                 if self.tokens >= tokens:
                     self.tokens -= tokens
                     return True
-                
-                # Calculate wait time
+
                 needed = tokens - self.tokens
-                wait_time = needed / self.refill_rate
-                
-                if time.time() + wait_time > deadline:
-                    return False
-                
-                # Release lock while waiting
-                self.lock.release()
-                try:
-                    time.sleep(min(wait_time, 0.1))
-                finally:
-                    self.lock.acquire()
+                wait_time = needed / max(self.refill_rate, 0.0001)
+
+            # Sleep outside the lock to allow other threads to progress.
+            sleep_for = min(wait_time, 0.1)
+            if now + sleep_for > deadline:
+                return False
+            time.sleep(sleep_for)
     
     def try_acquire(self, tokens: int = 1) -> bool:
         """Non-blocking token acquisition"""

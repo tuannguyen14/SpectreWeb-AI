@@ -2,7 +2,7 @@
 import os
 from typing import Dict, Any, List
 
-SECLISTS_PATH = "/usr/share/seclists"
+SECLISTS_PATH = "/usr/share/SecLists"
 
 WORDLISTS = {
     # Directory Discovery

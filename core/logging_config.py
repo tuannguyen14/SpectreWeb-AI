@@ -102,9 +102,11 @@ def setup_logging(
         structured: Use JSON structured logging
         log_file: Optional file path for logging
     """
-    root_logger = logging.getLogger("spectreweb")
+    # Configure root logger so all loggers (including those created via
+    # logging.getLogger(__name__)) inherit the same formatting.
+    root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
-    
+
     # Remove existing handlers
     root_logger.handlers = []
     
@@ -125,7 +127,7 @@ def setup_logging(
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
     
-    return root_logger
+    return logging.getLogger("spectreweb")
 
 
 class LogTimer:

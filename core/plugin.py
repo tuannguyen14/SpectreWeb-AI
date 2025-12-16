@@ -9,6 +9,7 @@ import subprocess
 import shutil
 import time
 import threading
+import shlex
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type
 from dataclasses import dataclass, field
@@ -169,6 +170,15 @@ class BaseTool(ABC):
         
         # Build command
         try:
+            stdin_data = None
+            if "stdin" in kwargs:
+                stdin_data = kwargs.pop("stdin")
+            elif "input_data" in kwargs:
+                stdin_data = kwargs.pop("input_data")
+
+            if isinstance(stdin_data, str) and stdin_data and not stdin_data.endswith("\n"):
+                stdin_data += "\n"
+
             cmd = self.build_command(target, **kwargs)
         except Exception as e:
             return ToolResult(
@@ -186,17 +196,21 @@ class BaseTool(ABC):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=timeout
+                timeout=timeout,
+                input=stdin_data
             )
             
             duration = time.time() - start_time
-            output = process.stdout + process.stderr
+            stdout = process.stdout or ""
+            stderr = process.stderr or ""
+            output = stdout + stderr
+            parse_source = stdout if stdout.strip() else output
             
             # Parse output
             try:
-                parsed = self.parse_output(output, process.returncode)
+                parsed = self.parse_output(parse_source, process.returncode)
             except Exception as e:
-                parsed = {"parse_error": str(e), "raw": output}
+                parsed = {"parse_error": str(e), "raw": parse_source}
             
             return ToolResult(
                 success=process.returncode == 0,
@@ -339,7 +353,7 @@ class NmapTool(BaseTool):
         
         additional = kwargs.get("additional_args", "")
         if additional:
-            cmd.extend(additional.split())
+            cmd.extend(shlex.split(additional))
         
         cmd.append(target)
         return cmd
@@ -380,17 +394,33 @@ class FfufTool(BaseTool):
     def build_command(self, target: str, **kwargs) -> List[str]:
         cmd = ["ffuf", "-u", target]
         
-        wordlist = kwargs.get("wordlist", "/usr/share/wordlists/dirb/common.txt")
+        wordlist = kwargs.get("wordlist", "common")
+        try:
+            if isinstance(wordlist, str) and wordlist and "/" not in wordlist and not wordlist.startswith("."):
+                from config import resolve_wordlist_path
+                wordlist = resolve_wordlist_path(wordlist)
+        except Exception:
+            pass
         cmd.extend(["-w", wordlist])
         
         match_codes = kwargs.get("match_codes", "200,301,302,403")
         cmd.extend(["-mc", match_codes])
         
         cmd.extend(["-o", "/dev/stdout", "-of", "json"])
+
+        headers = kwargs.get("headers")
+        if headers:
+            if isinstance(headers, dict):
+                for k, v in headers.items():
+                    cmd.extend(["-H", f"{k}: {v}"])
+            elif isinstance(headers, list):
+                for h in headers:
+                    if isinstance(h, str) and h.strip():
+                        cmd.extend(["-H", h.strip()])
         
         additional = kwargs.get("additional_args", "")
         if additional:
-            cmd.extend(additional.split())
+            cmd.extend(shlex.split(additional))
         
         return cmd
     
@@ -429,7 +459,7 @@ class KatanaTool(BaseTool):
         
         additional = kwargs.get("additional_args", "")
         if additional:
-            cmd.extend(additional.split())
+            cmd.extend(shlex.split(additional))
         
         return cmd
     
@@ -455,7 +485,7 @@ class SubfinderTool(BaseTool):
         
         additional = kwargs.get("additional_args", "")
         if additional:
-            cmd.extend(additional.split())
+            cmd.extend(shlex.split(additional))
         
         return cmd
     
@@ -477,13 +507,17 @@ class HttpxTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["httpx", "-u", target]
-        
-        additional = kwargs.get("additional_args", "-status-code -title -tech-detect")
+        cmd = ["httpx"]
+
+        additional = kwargs.get("additional_args", "-silent -status-code -title -tech-detect")
         if additional:
-            cmd.extend(additional.split())
-        
+            cmd.extend(shlex.split(additional))
+
         return cmd
+
+    def run(self, target: str, timeout: int = None, **kwargs) -> ToolResult:
+        # httpx can read targets from stdin (supports multi-line input)
+        return super().run(target, timeout=timeout, stdin=target, **kwargs)
     
     def parse_output(self, output: str, exit_code: int) -> Dict:
         lines = [line.strip() for line in output.split('\n') if line.strip()]
@@ -491,3 +525,286 @@ class HttpxTool(BaseTool):
             "results": lines,
             "total": len(lines)
         }
+
+
+@register_tool
+class WhatwebTool(BaseTool):
+    """Whatweb technology detection"""
+    name = "whatweb"
+    category = ToolCategory.RECON
+    binary_name = "whatweb"
+    description = "Web technology fingerprinting"
+    default_timeout = 120
+    
+    def build_command(self, target: str, **kwargs) -> List[str]:
+        cmd = ["whatweb"]
+        additional = kwargs.get("additional_args", "-a 3")
+        if additional:
+            cmd.extend(shlex.split(additional))
+        cmd.append(target)
+        return cmd
+    
+    def parse_output(self, output: str, exit_code: int) -> Dict:
+        technologies = []
+        for line in output.split('\n'):
+            if line.strip():
+                # Parse whatweb output format
+                parts = line.split('[')
+                for part in parts[1:]:
+                    if ']' in part:
+                        tech = part.split(']')[0].strip()
+                        if tech:
+                            technologies.append(tech)
+        return {
+            "technologies": list(set(technologies)),
+            "raw": output
+        }
+
+
+@register_tool
+class NaabuTool(BaseTool):
+    """Naabu fast port scanner"""
+    name = "naabu"
+    category = ToolCategory.SCANNER
+    binary_name = "naabu"
+    description = "Fast port scanner"
+    default_timeout = 300
+    
+    def build_command(self, target: str, **kwargs) -> List[str]:
+        cmd = ["naabu", "-host", target, "-silent"]
+        
+        ports = kwargs.get("ports", "")
+        if ports:
+            cmd.extend(["-p", ports])
+        
+        top_ports = kwargs.get("top_ports", 0)
+        if top_ports:
+            cmd.extend(["-top-ports", str(top_ports)])
+        
+        additional = kwargs.get("additional_args", "")
+        if additional:
+            cmd.extend(shlex.split(additional))
+        
+        return cmd
+    
+    def parse_output(self, output: str, exit_code: int) -> Dict:
+        ports = []
+        for line in output.split('\n'):
+            line = line.strip()
+            if line and ':' in line:
+                parts = line.split(':')
+                if len(parts) == 2:
+                    ports.append({
+                        "host": parts[0],
+                        "port": parts[1]
+                    })
+        return {
+            "ports": ports,
+            "total": len(ports)
+        }
+
+
+@register_tool
+class DalfoxTool(BaseTool):
+    """Dalfox XSS scanner"""
+    name = "dalfox"
+    category = ToolCategory.SCANNER
+    binary_name = "dalfox"
+    description = "Advanced XSS scanner"
+    default_timeout = 300
+    
+    def build_command(self, target: str, **kwargs) -> List[str]:
+        cmd = ["dalfox", "url", target]
+        
+        param = kwargs.get("param", "")
+        if param:
+            cmd.extend(["-p", param])
+        
+        blind = kwargs.get("blind", "")
+        if blind:
+            cmd.extend(["--blind", blind])
+        
+        cookie = kwargs.get("cookie", "")
+        if cookie:
+            cmd.extend(["--cookie", cookie])
+        
+        additional = kwargs.get("additional_args", "")
+        if additional:
+            cmd.extend(shlex.split(additional))
+        
+        return cmd
+    
+    def parse_output(self, output: str, exit_code: int) -> Dict:
+        vulnerabilities = []
+        for line in output.split('\n'):
+            if '[POC]' in line or '[V]' in line:
+                vulnerabilities.append(line.strip())
+        return {
+            "vulnerabilities": vulnerabilities,
+            "vulnerable": len(vulnerabilities) > 0,
+            "raw": output
+        }
+
+
+@register_tool
+class SqlmapTool(BaseTool):
+    """Sqlmap SQL injection scanner"""
+    name = "sqlmap"
+    category = ToolCategory.SCANNER
+    binary_name = "sqlmap"
+    description = "Automatic SQL injection tool"
+    default_timeout = 600
+    
+    def build_command(self, target: str, **kwargs) -> List[str]:
+        cmd = ["sqlmap", "-u", target, "--batch"]
+        
+        data = kwargs.get("data", "")
+        if data:
+            cmd.extend(["--data", data])
+        
+        additional = kwargs.get("additional_args", "")
+        if additional:
+            cmd.extend(shlex.split(additional))
+        
+        return cmd
+    
+    def parse_output(self, output: str, exit_code: int) -> Dict:
+        injectable = []
+        dbms = None
+        
+        for line in output.split('\n'):
+            if 'is vulnerable' in line.lower():
+                injectable.append(line.strip())
+            if 'back-end DBMS:' in line:
+                dbms = line.split(':')[-1].strip()
+        
+        return {
+            "injectable_params": injectable,
+            "dbms": dbms,
+            "vulnerable": len(injectable) > 0,
+            "raw": output
+        }
+
+
+@register_tool
+class GauTool(BaseTool):
+    """Gau URL fetcher"""
+    name = "gau"
+    category = ToolCategory.RECON
+    binary_name = "gau"
+    description = "Fetch known URLs from AlienVault, Wayback, Common Crawl"
+    default_timeout = 300
+    
+    def build_command(self, target: str, **kwargs) -> List[str]:
+        cmd = ["gau"]
+        
+        providers = kwargs.get("providers", "")
+        if providers:
+            cmd.extend(["--providers", providers])
+        
+        additional = kwargs.get("additional_args", "")
+        if additional:
+            cmd.extend(shlex.split(additional))
+        
+        return cmd
+
+    def run(self, target: str, timeout: int = None, **kwargs) -> ToolResult:
+        return super().run(target, timeout=timeout, stdin=target, **kwargs)
+    
+    def parse_output(self, output: str, exit_code: int) -> Dict:
+        urls = [line.strip() for line in output.split('\n') if line.strip()]
+        return {
+            "urls": urls,
+            "total": len(urls)
+        }
+
+
+@register_tool
+class WaybackurlsTool(BaseTool):
+    """Waybackurls fetcher"""
+    name = "waybackurls"
+    category = ToolCategory.RECON
+    binary_name = "waybackurls"
+    description = "Fetch URLs from Wayback Machine"
+    default_timeout = 300
+    
+    def build_command(self, target: str, **kwargs) -> List[str]:
+        cmd = ["waybackurls"]
+        
+        additional = kwargs.get("additional_args", "")
+        if additional:
+            cmd.extend(shlex.split(additional))
+        
+        return cmd
+
+    def run(self, target: str, timeout: int = None, **kwargs) -> ToolResult:
+        return super().run(target, timeout=timeout, stdin=target, **kwargs)
+    
+    def parse_output(self, output: str, exit_code: int) -> Dict:
+        urls = [line.strip() for line in output.split('\n') if line.strip()]
+        return {
+            "urls": urls,
+            "total": len(urls)
+        }
+
+
+@register_tool
+class ArjunTool(BaseTool):
+    """Arjun parameter discovery"""
+    name = "arjun"
+    category = ToolCategory.FUZZER
+    binary_name = "arjun"
+    description = "HTTP parameter discovery"
+    default_timeout = 300
+    
+    def build_command(self, target: str, **kwargs) -> List[str]:
+        cmd = ["arjun", "-u", target]
+        
+        method = kwargs.get("method", "GET")
+        cmd.extend(["-m", method])
+        
+        wordlist = kwargs.get("wordlist", "")
+        if wordlist:
+            try:
+                if isinstance(wordlist, str) and wordlist and "/" not in wordlist and not wordlist.startswith("."):
+                    from config import resolve_wordlist_path
+                    wordlist = resolve_wordlist_path(wordlist)
+            except Exception:
+                pass
+            cmd.extend(["-w", wordlist])
+        
+        additional = kwargs.get("additional_args", "")
+        if additional:
+            cmd.extend(shlex.split(additional))
+        
+        return cmd
+    
+    def parse_output(self, output: str, exit_code: int) -> Dict:
+        params = []
+        for line in output.split('\n'):
+            if 'Valid parameter found:' in line or '[param]' in line.lower():
+                # Extract parameter name
+                parts = line.split(':')
+                if len(parts) > 1:
+                    params.append(parts[-1].strip())
+        return {
+            "parameters": params,
+            "total": len(params)
+        }
+
+
+def run_tool(name: str, target: str, **kwargs) -> ToolResult:
+    """
+    Convenience function to run a tool by name.
+    
+    Usage:
+        result = run_tool("nmap", "192.168.1.1", ports="80,443")
+    """
+    tool = get_tool(name)
+    if not tool:
+        return ToolResult(
+            success=False,
+            tool_name=name,
+            error=f"Tool '{name}' not registered"
+        )
+    return tool.run(target, **kwargs)

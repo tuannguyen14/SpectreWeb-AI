@@ -1,4 +1,4 @@
-# 👻 Spectreweb AI v4.5.1
+# 👻 Spectreweb AI v4.5.3
 
 > **Self-Learning AI for Manual Web Penetration Testing**
 >
@@ -59,7 +59,7 @@
 | **Logic Bugs** | Often missed | AI suggests business-logic test cases |
 | **Session** | Stateless | Persists findings and context |
 
-## 🧠 Self-Learning AI (NEW in v4.5.1!)
+## 🧠 Self-Learning AI (NEW in v4.5.3!)
 
 Spectreweb AI includes a **self-learning local AI** that becomes smarter with your usage:
 
@@ -237,7 +237,7 @@ echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 python server.py
 
 # Output:
-# 👻 Spectreweb AI v4.5.1 - Starting...
+# 👻 Spectreweb AI v4.5.3 - Starting...
 # ✅ Server running at http://127.0.0.1:8888
 ```
 
@@ -418,7 +418,7 @@ MIT License – Use responsibly.
 
 **Built for bug bounty hunters and security engineers who think, not just scan.**
 
-# 👻 Spectreweb AI v4.5.1
+# 👻 Spectreweb AI v4.5.3
 
 [![Version](https://img.shields.io/badge/version-4.1.0-blue.svg)]()
 [![Tools](https://img.shields.io/badge/MCP_Tools-67-green.svg)]()

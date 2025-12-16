@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI - Phantom Recon Engine v3.0
+SpectreWeb AI - Phantom Recon Engine v4.5.3
 AI-Powered Web Penetration Testing with Smart Reporting
 
 Usage:
-    python server.py [--host HOST] [--port PORT] [--debug]
+    python server.py [--host HOST] [--port PORT] [--debug] [--structured-logs]
 """
 
 import os
@@ -24,8 +24,10 @@ from flask import Flask
 
 from config import API_HOST, API_PORT, create_banner
 from api import register_routes
+from core.middleware import setup_middleware
+from core.logging_config import setup_logging
 
-# Logging
+# Default logging setup (will be reconfigured in main())
 try:
     handlers = [
         logging.StreamHandler(sys.stdout),
@@ -45,19 +47,32 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 
+# Setup middleware (request tracking, error handling)
+setup_middleware(app)
+
 # Register routes
 register_routes(app)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI Server v3.0")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI Server v4.5.3")
     parser.add_argument("--host", default=API_HOST, help="Host to bind")
     parser.add_argument("--port", type=int, default=API_PORT, help="Port to bind")
     parser.add_argument("--debug", action="store_true", help="Debug mode")
+    parser.add_argument("--structured-logs", action="store_true", help="Use JSON structured logging")
+    parser.add_argument("--log-file", default=None, help="Log file path")
     args = parser.parse_args()
     
+    # Setup structured logging if requested
+    log_level = "DEBUG" if args.debug else "INFO"
+    setup_logging(
+        level=log_level,
+        structured=args.structured_logs,
+        log_file=args.log_file
+    )
+    
     print(create_banner())
-    logger.info(f"👻 Starting SpectreWeb AI on {args.host}:{args.port}")
+    logger.info(f"👻 Starting SpectreWeb AI v4.5.3 on {args.host}:{args.port}")
     
     if not args.debug:
         logging.getLogger('werkzeug').setLevel(logging.WARNING)

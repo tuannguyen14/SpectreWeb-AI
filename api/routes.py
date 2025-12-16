@@ -57,6 +57,7 @@ from web.deep_secrets import (
 from core.job_queue import get_job_queue, JobStatus
 from core.response import APIResponse, ErrorCode, set_request_id
 from web.rate_limiter import get_rate_limiter
+from core.plugin import get_tool, list_tools, run_tool, ToolCategory
 
 
 def register_routes(app):
@@ -268,104 +269,121 @@ def register_routes(app):
         result = execute_command(command)
         telemetry.record(name, result.get("success", False))
         return jsonify(result)
+
+    def _run_plugin_tool(tool_name: str, target: str, options: dict = None, clean_output: bool = False):
+        tool = get_tool(tool_name)
+        if not tool:
+            return jsonify({"success": False, "error": f"Tool '{tool_name}' not found"}), 404
+        if not tool.is_available():
+            return jsonify({"success": False, "error": f"Tool '{tool_name}' is not installed"}), 400
+
+        opts = options or {}
+        result = tool.run(target, **opts)
+        telemetry.record(tool_name, result.success)
+
+        output = result.output or ""
+        if clean_output:
+            output = clean_projectdiscovery_output(output)
+
+        payload = {
+            "success": result.success,
+            "command": result.command,
+            "output": output,
+            "return_code": result.exit_code,
+            "execution_time": result.duration_seconds,
+        }
+        if result.error:
+            payload["error"] = result.error
+        if result.parsed_data is not None:
+            payload["data"] = result.parsed_data
+
+        return jsonify(payload)
     
     @app.route("/api/tools/nmap", methods=["POST"])
     def nmap():
         p = _json()
-        cmd = f"nmap {p.get('scan_type', '-sV')}"
-        if p.get("ports"): cmd += f" -p {p['ports']}"
-        if p.get("additional_args"): cmd += f" {p['additional_args']}"
-        cmd += f" {p.get('target', '')}"
-        return _run_tool("nmap", cmd)
+        target = (p.get("target") or "").strip()
+        if not target:
+            return jsonify({"success": False, "error": "Target required"}), 400
+
+        options = {
+            "scan_type": p.get("scan_type", "-sV"),
+            "ports": p.get("ports", ""),
+            "additional_args": p.get("additional_args", ""),
+        }
+        return _run_plugin_tool("nmap", target, options)
     
     @app.route("/api/tools/ffuf", methods=["POST"])
     def ffuf():
         p = _json()
-        url = p.get("url", "")
-        if "FUZZ" not in url: url = url.rstrip("/") + "/FUZZ"
-        
-        # Build base command
-        wordlist = p.get('wordlist', '/usr/share/wordlists/dirb/common.txt')
-        match_codes = p.get('match_codes', '200,301,302,403')
-        cmd = f"ffuf -u {url} -w {wordlist} -mc {match_codes}"
-        
-        # Add headers safely
+        url = (p.get("url") or "").strip()
+        if not url:
+            return jsonify({"success": False, "error": "URL is required"}), 400
+        if "FUZZ" not in url:
+            url = url.rstrip("/") + "/FUZZ"
+
         headers = p.get("headers")
-        if headers:
-            if isinstance(headers, str):
-                # Try to parse string headers or just add safely
-                cmd += f" -H {shlex.quote(headers)}"
-            elif isinstance(headers, dict):
-                for k, v in headers.items():
-                    header_val = f"{k}: {v}"
-                    cmd += f" -H {shlex.quote(header_val)}"
-        
-        # Add additional args (legacy support)
-        if p.get("additional_args"): 
-            cmd += f" {p['additional_args']}"
-            
-        return _run_tool("ffuf", cmd)
+        if isinstance(headers, str):
+            headers = [headers]
+
+        options = {
+            "wordlist": p.get("wordlist", "common"),
+            "match_codes": p.get("match_codes", "200,301,302,403"),
+            "headers": headers,
+            "additional_args": p.get("additional_args", ""),
+        }
+        return _run_plugin_tool("ffuf", url, options)
     
     @app.route("/api/tools/subfinder", methods=["POST"])
     def subfinder():
         p = _json()
-        domain = p.get('domain', '').strip()
+        domain = (p.get("domain") or "").strip()
         if not domain:
-            return jsonify({"success": False, "error": "Domain is required"})
-        
-        additional_args = p.get('additional_args', '-silent')
-        if '-silent' not in additional_args:
-            additional_args = '-silent ' + additional_args
-        
-        cmd = f"subfinder -d {domain} {additional_args}"
-        result = execute_command(cmd)
-        result['output'] = clean_projectdiscovery_output(result.get('output', ''))
-        telemetry.record("subfinder", result.get("success", False))
-        return jsonify(result)
+            return jsonify({"success": False, "error": "Domain is required"}), 400
+
+        additional_args = p.get("additional_args", "-silent") or "-silent"
+        if "-silent" not in additional_args:
+            additional_args = "-silent " + additional_args
+
+        options = {"additional_args": additional_args}
+        return _run_plugin_tool("subfinder", domain, options, clean_output=True)
     
     @app.route("/api/tools/sqlmap", methods=["POST"])
     def sqlmap():
         p = _json()
-        cmd = f"sqlmap -u \"{p.get('url', '')}\" --batch"
-        if p.get("data"): cmd += f" --data=\"{p['data']}\""
-        if p.get("additional_args"): cmd += f" {p['additional_args']}"
-        return _run_tool("sqlmap", cmd)
+        url = (p.get("url") or "").strip()
+        if not url:
+            return jsonify({"success": False, "error": "URL is required"}), 400
+
+        options = {
+            "data": p.get("data", "") or "",
+            "additional_args": p.get("additional_args", ""),
+        }
+        return _run_plugin_tool("sqlmap", url, options)
     
     @app.route("/api/tools/whatweb", methods=["POST"])
     def whatweb():
         p = _json()
-        cmd = f"whatweb {p.get('additional_args', '-a 3')} {p.get('url', '')}"
-        return _run_tool("whatweb", cmd)
+        url = (p.get("url") or "").strip()
+        if not url:
+            return jsonify({"success": False, "error": "URL is required"}), 400
+
+        options = {"additional_args": p.get("additional_args", "-a 3")}
+        return _run_plugin_tool("whatweb", url, options)
     
     @app.route("/api/tools/httpx", methods=["POST"])
     def httpx():
         p = _json()
-        target = p.get('target', '').strip()
-        additional_args = p.get('additional_args', '')
-        
+        target = (p.get("target") or "").strip()
+        additional_args = p.get("additional_args", "")
+
         if not target:
-            return jsonify({"success": False, "error": "Target is required"})
-        
-        # Escape special characters in target for shell safety
-        target = target.replace('"', '\\"').replace('$', '\\$')
-        
-        # Build command with appropriate flags
-        if not additional_args:
-            cmd = f'echo "{target}" | httpx -silent -status-code -title -tech-detect'
-        elif '-json' in additional_args:
-            cmd = f'echo "{target}" | httpx {additional_args}'
-        else:
-            if '-silent' not in additional_args:
-                additional_args = '-silent ' + additional_args
-            cmd = f'echo "{target}" | httpx {additional_args}'
-        
-        result = execute_command(cmd)
-        
-        # Clean output
-        result['output'] = clean_projectdiscovery_output(result.get('output', ''))
-        
-        telemetry.record("httpx", result.get("success", False))
-        return jsonify(result)
+            return jsonify({"success": False, "error": "Target is required"}), 400
+
+        options = {
+            "additional_args": additional_args or "-silent -status-code -title -tech-detect",
+        }
+        return _run_plugin_tool("httpx", target, options, clean_output=True)
     
     # ==========================
     # TOOLS - CRAWLERS
@@ -374,59 +392,125 @@ def register_routes(app):
     @app.route("/api/tools/katana", methods=["POST"])
     def katana():
         p = _json()
-        url = p.get('url', '').strip()
+        url = (p.get("url") or "").strip()
         if not url:
-            return jsonify({"success": False, "error": "URL is required"})
-        
-        cmd = f"katana -u {url} -d {p.get('depth', 2)} -silent"
-        if p.get("js_crawl", True): cmd += " -jc"
-        
-        # Sanitize additional_args - remove invalid -field options
+            return jsonify({"success": False, "error": "URL is required"}), 400
+
+        depth = p.get("depth", 2)
+        try:
+            depth = int(depth)
+        except Exception:
+            depth = 2
+
         additional_args = p.get("additional_args", "")
         if additional_args:
-            # Remove -field with invalid values (katana only supports: url, path, fqdn, rdn, rurl, qurl, qpath, file, ufile, key, value, kv, dir, udir)
-            additional_args = re.sub(r'-field\s+\S+', '', additional_args).strip()
-            if additional_args:
-                cmd += f" {additional_args}"
-        
-        result = execute_command(cmd)
-        result['output'] = clean_projectdiscovery_output(result.get('output', ''))
-        telemetry.record("katana", result.get("success", False))
-        return jsonify(result)
+            additional_args = re.sub(r'-field\s+\S+', '', str(additional_args)).strip()
+
+        options = {
+            "depth": depth,
+            "js_crawl": bool(p.get("js_crawl", True)),
+            "additional_args": additional_args,
+        }
+        return _run_plugin_tool("katana", url, options, clean_output=True)
     
     @app.route("/api/tools/waybackurls", methods=["POST"])
     def waybackurls():
         p = _json()
+        domain = (p.get("domain") or "").strip()
+        if not domain:
+            return jsonify({"success": False, "error": "Domain is required"}), 400
+
         limit = p.get("limit", 0)
-        cmd = f"echo {p.get('domain', '')} | waybackurls"
-        if p.get("additional_args"): 
-            # Remove --limit flag if present (not supported by waybackurls)
-            additional = p['additional_args'].replace('--limit', '').replace('-limit', '')
-            if additional.strip():
-                cmd += f" {additional}"
-        # Add limit using head if specified
+        try:
+            limit = int(limit)
+        except Exception:
+            limit = 0
+
+        additional_args = p.get("additional_args", "") or ""
+        additional_args = str(additional_args).replace("--limit", "").replace("-limit", "").strip()
+
+        tool = get_tool("waybackurls")
+        if not tool:
+            return jsonify({"success": False, "error": "Tool 'waybackurls' not found"}), 404
+        if not tool.is_available():
+            return jsonify({"success": False, "error": "Tool 'waybackurls' is not installed"}), 400
+
+        result = tool.run(domain, additional_args=additional_args)
+        telemetry.record("waybackurls", result.success)
+
+        urls = [l.strip() for l in (result.output or "").splitlines() if l.strip()]
         if limit and limit > 0:
-            cmd += f" | head -n {limit}"
-        return _run_tool("waybackurls", cmd)
+            urls = urls[:limit]
+
+        payload = {
+            "success": result.success,
+            "command": result.command,
+            "output": "\n".join(urls),
+            "return_code": result.exit_code,
+            "execution_time": result.duration_seconds,
+            "data": {"urls": urls, "total": len(urls)},
+        }
+        if result.error:
+            payload["error"] = result.error
+
+        return jsonify(payload)
     
     @app.route("/api/tools/gau", methods=["POST"])
     def gau():
         p = _json()
+        domain = (p.get("domain") or "").strip()
+        if not domain:
+            return jsonify({"success": False, "error": "Domain is required"}), 400
+
         limit = p.get("limit", 0)
-        cmd = f"echo {p.get('domain', '')} | gau"
-        if p.get("providers"): cmd += f" --providers {p['providers']}"
-        if p.get("additional_args"): cmd += f" {p['additional_args']}"
-        # Add limit using head if specified
+        try:
+            limit = int(limit)
+        except Exception:
+            limit = 0
+
+        tool = get_tool("gau")
+        if not tool:
+            return jsonify({"success": False, "error": "Tool 'gau' not found"}), 404
+        if not tool.is_available():
+            return jsonify({"success": False, "error": "Tool 'gau' is not installed"}), 400
+
+        result = tool.run(
+            domain,
+            providers=p.get("providers", "") or "",
+            additional_args=p.get("additional_args", "") or "",
+        )
+        telemetry.record("gau", result.success)
+
+        urls = [l.strip() for l in (result.output or "").splitlines() if l.strip()]
         if limit and limit > 0:
-            cmd += f" | head -n {limit}"
-        return _run_tool("gau", cmd)
+            urls = urls[:limit]
+
+        payload = {
+            "success": result.success,
+            "command": result.command,
+            "output": "\n".join(urls),
+            "return_code": result.exit_code,
+            "execution_time": result.duration_seconds,
+            "data": {"urls": urls, "total": len(urls)},
+        }
+        if result.error:
+            payload["error"] = result.error
+
+        return jsonify(payload)
     
     @app.route("/api/tools/arjun", methods=["POST"])
     def arjun():
         p = _json()
-        cmd = f"arjun -u {p.get('url', '')} -m {p.get('method', 'GET')}"
-        if p.get("wordlist"): cmd += f" -w {p['wordlist']}"
-        return _run_tool("arjun", cmd)
+        url = (p.get("url") or "").strip()
+        if not url:
+            return jsonify({"success": False, "error": "URL is required"}), 400
+
+        options = {
+            "method": p.get("method", "GET"),
+            "wordlist": p.get("wordlist", "") or "",
+            "additional_args": p.get("additional_args", "") or "",
+        }
+        return _run_plugin_tool("arjun", url, options)
     
     # ==========================
     # TOOLS - ADVANCED SCANNERS
@@ -436,34 +520,32 @@ def register_routes(app):
     def dalfox():
         """Dalfox - Advanced XSS scanner"""
         p = _json()
-        url = p.get("url", "")
+        url = (p.get("url") or "").strip()
         if not url:
-            return jsonify({"error": "URL required"}), 400
-        
-        cmd = f"dalfox url {url}"
-        if p.get("param"): cmd += f" -p {p['param']}"
-        if p.get("blind"): cmd += f" --blind {p['blind']}"
-        if p.get("cookie"): cmd += f" --cookie \"{p['cookie']}\""
-        if p.get("additional_args"): cmd += f" {p['additional_args']}"
-        return _run_tool("dalfox", cmd)
+            return jsonify({"success": False, "error": "URL required"}), 400
+
+        options = {
+            "param": p.get("param", "") or "",
+            "blind": p.get("blind", "") or "",
+            "cookie": p.get("cookie", "") or "",
+            "additional_args": p.get("additional_args", "") or "",
+        }
+        return _run_plugin_tool("dalfox", url, options)
     
     @app.route("/api/tools/naabu", methods=["POST"])
     def naabu():
         """Naabu - Fast port scanner"""
         p = _json()
-        target = p.get("target", "").strip()
+        target = (p.get("target") or "").strip()
         if not target:
-            return jsonify({"success": False, "error": "Target required"})
-        
-        cmd = f"naabu -host {target} -silent"
-        if p.get("ports"): cmd += f" -p {p['ports']}"
-        if p.get("top_ports"): cmd += f" -top-ports {p['top_ports']}"
-        if p.get("additional_args"): cmd += f" {p['additional_args']}"
-        
-        result = execute_command(cmd)
-        result['output'] = clean_projectdiscovery_output(result.get('output', ''))
-        telemetry.record("naabu", result.get("success", False))
-        return jsonify(result)
+            return jsonify({"success": False, "error": "Target required"}), 400
+
+        options = {
+            "ports": p.get("ports", "") or "",
+            "top_ports": p.get("top_ports", 0) or 0,
+            "additional_args": p.get("additional_args", "") or "",
+        }
+        return _run_plugin_tool("naabu", target, options, clean_output=True)
     
     # ==========================
     # BUSINESS LOGIC & ANALYSIS
@@ -1850,3 +1932,100 @@ def register_routes(app):
         limiter = get_rate_limiter()
         limiter.reset(domain)
         return jsonify({"success": True})
+
+    # ==========================
+    # PLUGIN SYSTEM
+    # ==========================
+    
+    @app.route("/api/plugins", methods=["GET"])
+    def get_plugins():
+        """List all registered tool plugins"""
+        tools = list_tools()
+        return jsonify({
+            "success": True,
+            "tools": tools,
+            "total": len(tools),
+            "available": len([t for t in tools if t.get("available")])
+        })
+    
+    @app.route("/api/plugins/<name>", methods=["GET"])
+    def get_plugin_info(name):
+        """Get info about a specific plugin"""
+        tool = get_tool(name)
+        if not tool:
+            return jsonify({"error": f"Tool '{name}' not found"}), 404
+        return jsonify({
+            "success": True,
+            "name": tool.name,
+            "category": tool.category.value,
+            "description": tool.description,
+            "binary": tool.binary_name,
+            "available": tool.is_available(),
+            "default_timeout": tool.default_timeout
+        })
+    
+    @app.route("/api/plugins/<name>/run", methods=["POST"])
+    def run_plugin(name):
+        """Run a tool plugin"""
+        tool = get_tool(name)
+        if not tool:
+            return jsonify({"error": f"Tool '{name}' not found"}), 404
+        
+        if not tool.is_available():
+            return jsonify({"error": f"Tool '{name}' is not installed"}), 400
+        
+        params = _json()
+        target = params.get("target", "")
+        if not target:
+            return jsonify({"error": "Target required"}), 400
+        
+        # Extract tool-specific options
+        timeout = params.get("timeout", tool.default_timeout)
+        options = {k: v for k, v in params.items() if k not in ("target", "timeout")}
+        
+        result = tool.run(target, timeout=timeout, **options)
+        telemetry.record(name, result.success)
+        
+        return jsonify(result.to_dict())
+    
+    @app.route("/api/plugins/<name>/run-async", methods=["POST"])
+    def run_plugin_async(name):
+        """Run a tool plugin asynchronously (returns job_id)"""
+        tool = get_tool(name)
+        if not tool:
+            return jsonify({"error": f"Tool '{name}' not found"}), 404
+        
+        if not tool.is_available():
+            return jsonify({"error": f"Tool '{name}' is not installed"}), 400
+        
+        params = _json()
+        target = params.get("target", "")
+        if not target:
+            return jsonify({"error": "Target required"}), 400
+        
+        timeout = params.get("timeout", tool.default_timeout)
+        options = {k: v for k, v in params.items() if k not in ("target", "timeout")}
+        
+        def run_tool_job(job, tool_instance, tgt, tout, opts):
+            job.add_log(f"Running {tool_instance.name} on {tgt}")
+            result = tool_instance.run(tgt, timeout=tout, **opts)
+            job.update_progress(100, "Completed")
+            return result.to_dict()
+        
+        queue = get_job_queue()
+        job_id = queue.submit(
+            name=f"plugin_{name}",
+            target=target,
+            func=run_tool_job,
+            tool_instance=tool,
+            tgt=target,
+            tout=timeout,
+            opts=options,
+            metadata={"tool": name, "target": target}
+        )
+        
+        return jsonify({
+            "success": True,
+            "job_id": job_id,
+            "message": f"Tool {name} started in background"
+        })
