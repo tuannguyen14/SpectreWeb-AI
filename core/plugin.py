@@ -7,13 +7,17 @@ to enable easy integration and consistent behavior.
 
 import subprocess
 import shutil
+import shlex
+import os
 import time
 import threading
-import shlex
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class ToolCategory(str, Enum):
@@ -86,9 +90,45 @@ class BaseTool(ABC):
     
     @property
     def binary_path(self) -> Optional[str]:
-        """Get path to tool binary"""
+        """Get path to tool binary - works for any user (root or regular)"""
         if self._binary_path is None:
-            self._binary_path = shutil.which(self.binary_name)
+            # Build dynamic candidate paths for any system/user
+            candidates = []
+            
+            # Current user's go bin
+            candidates.append(os.path.expanduser(f"~/go/bin/{self.binary_name}"))
+            
+            # Common home directories for go binaries
+            for home in ["/root", "/home"]:
+                if home == "/home" and os.path.isdir("/home"):
+                    # Check all user home directories
+                    try:
+                        for user in os.listdir("/home"):
+                            user_go_bin = f"/home/{user}/go/bin/{self.binary_name}"
+                            if user_go_bin not in candidates:
+                                candidates.append(user_go_bin)
+                    except PermissionError:
+                        pass
+                else:
+                    candidates.append(f"{home}/go/bin/{self.binary_name}")
+            
+            # System-wide locations
+            candidates.extend([
+                f"/usr/local/go/bin/{self.binary_name}",
+                f"/usr/local/bin/{self.binary_name}",
+                f"/usr/bin/{self.binary_name}",
+                f"/opt/go/bin/{self.binary_name}",
+            ])
+            
+            # Check each candidate
+            for path in candidates:
+                if os.path.exists(path) and os.access(path, os.X_OK):
+                    self._binary_path = path
+                    break
+            
+            # Fallback to PATH-based resolution
+            if self._binary_path is None:
+                self._binary_path = shutil.which(self.binary_name)
         return self._binary_path
     
     def is_available(self) -> bool:
@@ -138,6 +178,9 @@ class BaseTool(ABC):
         self,
         target: str,
         timeout: int = None,
+        realtime: bool = False,
+        stdout_callback = None,
+        stderr_callback = None,
         **kwargs
     ) -> ToolResult:
         """
@@ -146,6 +189,9 @@ class BaseTool(ABC):
         Args:
             target: Primary target
             timeout: Execution timeout in seconds
+            realtime: If True, use streaming execution with realtime logging
+            stdout_callback: Callback function for stdout lines
+            stderr_callback: Callback function for stderr lines
             **kwargs: Tool-specific options
         
         Returns:
@@ -189,6 +235,13 @@ class BaseTool(ABC):
         
         # Execute
         timeout = timeout or self.default_timeout
+        cmd_str = " ".join(shlex.quote(c) for c in cmd)
+        
+        # Use realtime streaming execution if requested or if callbacks are provided
+        if realtime or stdout_callback or stderr_callback:
+            return self._run_realtime(cmd, cmd_str, timeout, stdin_data, stdout_callback, stderr_callback)
+        
+        # Standard blocking execution
         start_time = time.time()
         
         try:
@@ -215,7 +268,7 @@ class BaseTool(ABC):
             return ToolResult(
                 success=process.returncode == 0,
                 tool_name=self.name,
-                command=" ".join(cmd),
+                command=cmd_str,
                 output=output,
                 parsed_data=parsed,
                 duration_seconds=duration,
@@ -226,7 +279,7 @@ class BaseTool(ABC):
             return ToolResult(
                 success=False,
                 tool_name=self.name,
-                command=" ".join(cmd),
+                command=cmd_str,
                 error=f"Timeout after {timeout} seconds",
                 duration_seconds=timeout
             )
@@ -234,10 +287,57 @@ class BaseTool(ABC):
             return ToolResult(
                 success=False,
                 tool_name=self.name,
-                command=" ".join(cmd) if cmd else "",
+                command=cmd_str if cmd else "",
                 error=str(e),
                 duration_seconds=time.time() - start_time
             )
+
+    def _run_realtime(
+        self,
+        cmd: List[str],
+        cmd_str: str,
+        timeout: int,
+        stdin_data: str = None,
+        stdout_callback = None,
+        stderr_callback = None
+    ) -> ToolResult:
+        """
+        Execute with realtime streaming output (logs each line as it arrives).
+        """
+        from .executor import CommandExecutor
+        
+        # CommandExecutor expects a shell command string
+        # For stdin-fed tools, we need to pipe the input
+        if stdin_data:
+            # Use echo to pipe stdin data to the command
+            escaped_stdin = shlex.quote(stdin_data.rstrip('\n'))
+            shell_cmd = f"echo {escaped_stdin} | {cmd_str}"
+        else:
+            shell_cmd = cmd_str
+        
+        executor = CommandExecutor(shell_cmd, timeout=timeout, stdout_callback=stdout_callback, stderr_callback=stderr_callback)
+        result = executor.execute()
+        
+        output = result.get("output", "")
+        parse_source = result.get("stdout", "") or output
+        
+        # Parse output
+        exit_code = result.get("return_code", 1)
+        try:
+            parsed = self.parse_output(parse_source, exit_code)
+        except Exception as e:
+            parsed = {"parse_error": str(e), "raw": parse_source}
+        
+        return ToolResult(
+            success=result.get("success", False),
+            tool_name=self.name,
+            command=shell_cmd,
+            output=output,
+            parsed_data=parsed,
+            duration_seconds=result.get("execution_time", 0),
+            exit_code=exit_code,
+            error=result.get("error")
+        )
 
 
 class ToolRegistry:
@@ -341,7 +441,7 @@ class NmapTool(BaseTool):
     default_timeout = 600
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["nmap"]
+        cmd = [self.binary_path or "nmap"]
         
         scan_type = kwargs.get("scan_type", "-sV")
         if scan_type:
@@ -392,7 +492,7 @@ class FfufTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["ffuf", "-u", target]
+        cmd = [self.binary_path or "ffuf", "-u", target]
         
         wordlist = kwargs.get("wordlist", "common")
         try:
@@ -447,7 +547,7 @@ class KatanaTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["katana", "-u", target]
+        cmd = [self.binary_path or "katana", "-u", target]
         
         depth = kwargs.get("depth", 2)
         cmd.extend(["-d", str(depth)])
@@ -481,7 +581,7 @@ class SubfinderTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["subfinder", "-d", target, "-silent"]
+        cmd = [self.binary_path or "subfinder", "-d", target, "-silent"]
         
         additional = kwargs.get("additional_args", "")
         if additional:
@@ -507,17 +607,23 @@ class HttpxTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["httpx"]
+        cmd = [self.binary_path or "httpx"]
 
-        additional = kwargs.get("additional_args", "-silent -status-code -title -tech-detect")
+        additional = kwargs.get("additional_args", "-silent -sc -title -td")
         if additional:
-            cmd.extend(shlex.split(additional))
+            replacements = {
+                "-status-code": "-sc",
+                "--status-code": "-sc",
+                "-tech-detect": "-td",
+                "--tech-detect": "-td",
+            }
+            cmd.extend([replacements.get(tok, tok) for tok in shlex.split(additional)])
 
         return cmd
 
-    def run(self, target: str, timeout: int = None, **kwargs) -> ToolResult:
+    def run(self, target: str, timeout: int = None, stdout_callback=None, stderr_callback=None, **kwargs) -> ToolResult:
         # httpx can read targets from stdin (supports multi-line input)
-        return super().run(target, timeout=timeout, stdin=target, **kwargs)
+        return super().run(target, timeout=timeout, stdin=target, stdout_callback=stdout_callback, stderr_callback=stderr_callback, **kwargs)
     
     def parse_output(self, output: str, exit_code: int) -> Dict:
         lines = [line.strip() for line in output.split('\n') if line.strip()]
@@ -537,7 +643,7 @@ class WhatwebTool(BaseTool):
     default_timeout = 120
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["whatweb"]
+        cmd = [self.binary_path or "whatweb"]
         additional = kwargs.get("additional_args", "-a 3")
         if additional:
             cmd.extend(shlex.split(additional))
@@ -571,7 +677,7 @@ class NaabuTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["naabu", "-host", target, "-silent"]
+        cmd = [self.binary_path or "naabu", "-host", target, "-silent"]
         
         ports = kwargs.get("ports", "")
         if ports:
@@ -614,7 +720,7 @@ class DalfoxTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["dalfox", "url", target]
+        cmd = [self.binary_path or "dalfox", "url", target]
         
         param = kwargs.get("param", "")
         if param:
@@ -656,7 +762,7 @@ class SqlmapTool(BaseTool):
     default_timeout = 600
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["sqlmap", "-u", target, "--batch"]
+        cmd = [self.binary_path or "sqlmap", "-u", target, "--batch"]
         
         data = kwargs.get("data", "")
         if data:
@@ -696,7 +802,7 @@ class GauTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["gau"]
+        cmd = [self.binary_path or "gau"]
         
         providers = kwargs.get("providers", "")
         if providers:
@@ -708,8 +814,8 @@ class GauTool(BaseTool):
         
         return cmd
 
-    def run(self, target: str, timeout: int = None, **kwargs) -> ToolResult:
-        return super().run(target, timeout=timeout, stdin=target, **kwargs)
+    def run(self, target: str, timeout: int = None, stdout_callback=None, stderr_callback=None, **kwargs) -> ToolResult:
+        return super().run(target, timeout=timeout, stdin=target, stdout_callback=stdout_callback, stderr_callback=stderr_callback, **kwargs)
     
     def parse_output(self, output: str, exit_code: int) -> Dict:
         urls = [line.strip() for line in output.split('\n') if line.strip()]
@@ -729,7 +835,7 @@ class WaybackurlsTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["waybackurls"]
+        cmd = [self.binary_path or "waybackurls"]
         
         additional = kwargs.get("additional_args", "")
         if additional:
@@ -737,8 +843,8 @@ class WaybackurlsTool(BaseTool):
         
         return cmd
 
-    def run(self, target: str, timeout: int = None, **kwargs) -> ToolResult:
-        return super().run(target, timeout=timeout, stdin=target, **kwargs)
+    def run(self, target: str, timeout: int = None, stdout_callback=None, stderr_callback=None, **kwargs) -> ToolResult:
+        return super().run(target, timeout=timeout, stdin=target, stdout_callback=stdout_callback, stderr_callback=stderr_callback, **kwargs)
     
     def parse_output(self, output: str, exit_code: int) -> Dict:
         urls = [line.strip() for line in output.split('\n') if line.strip()]
@@ -758,7 +864,7 @@ class ArjunTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = ["arjun", "-u", target]
+        cmd = [self.binary_path or "arjun", "-u", target]
         
         method = kwargs.get("method", "GET")
         cmd.extend(["-m", method])

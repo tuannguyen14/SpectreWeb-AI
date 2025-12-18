@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI MCP Client v4.5.3 - Consolidated Tools
+SpectreWeb AI MCP Client v5.0.1 - Consolidated Tools
 Phantom Recon Engine - AI-Powered Web Penetration Testing
 
 Changes from v3.0:
@@ -72,6 +72,42 @@ class SpectreClient:
         except Exception as e:
             return {"error": str(e), "success": False}
 
+    def stream_tool(self, endpoint: str, data: Dict, tool_name: str) -> Dict:
+        """Execute tool with streaming output"""
+        logger.info(f"🚀 Starting {tool_name} (streaming)...")
+        result = {"success": False, "output": "", "data": {}}
+        data["stream"] = True
+        
+        try:
+            with self.session.post(f"{self.server_url}/{endpoint}", json=data, timeout=self.timeout, stream=True) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line: continue
+                    try:
+                        msg = json.loads(line)
+                        msg_type = msg.get("type")
+                        msg_data = msg.get("data")
+                        
+                        if msg_type == "stdout":
+                            # Only log if it's not a progress bar update or empty
+                            if msg_data and msg_data.strip():
+                                logger.info(f"  {msg_data.rstrip()}")
+                        elif msg_type == "stderr":
+                             if msg_data and msg_data.strip():
+                                logger.warning(f"  {msg_data.rstrip()}")
+                        elif msg_type == "result":
+                            result = msg_data
+                        elif msg_type == "error":
+                            logger.error(f"❌ Error: {msg_data}")
+                            result["error"] = msg_data
+                            
+                    except json.JSONDecodeError:
+                        pass
+                        
+            return result
+        except Exception as e:
+            return {"error": str(e), "success": False}
+
 
 def setup_mcp_server(client: SpectreClient) -> FastMCP:
     """Setup MCP with consolidated tools (~50 tools)"""
@@ -117,7 +153,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         return client.post("api/tools/subfinder", {"domain": domain, "additional_args": additional_args})
     
     @mcp.tool()
-    def httpx_probe(target: str, additional_args: str = "-status-code -title -tech-detect") -> Dict[str, Any]:
+    def httpx_probe(target: str, additional_args: str = "-sc -title -td") -> Dict[str, Any]:
         """Httpx - Fast HTTP toolkit for probing web servers."""
         return client.post("api/tools/httpx", {"target": target, "additional_args": additional_args})
     
@@ -158,18 +194,23 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
             limit: Max URLs to return (0 = unlimited)
         """
         if source == "wayback":
-            return client.post("api/tools/waybackurls", {"domain": domain, "limit": limit})
+            return client.stream_tool("api/tools/waybackurls", {"domain": domain, "limit": limit}, "waybackurls")
         elif source == "gau":
-            return client.post("api/tools/gau", {"domain": domain, "limit": limit})
+            return client.stream_tool("api/tools/gau", {"domain": domain, "limit": limit}, "gau")
         else:
             # Get from both
-            wayback = client.post("api/tools/waybackurls", {"domain": domain, "limit": limit // 2 if limit else 0})
-            gau = client.post("api/tools/gau", {"domain": domain, "limit": limit // 2 if limit else 0})
+            wayback = client.stream_tool("api/tools/waybackurls", {"domain": domain, "limit": limit // 2 if limit else 0}, "waybackurls")
+            gau = client.stream_tool("api/tools/gau", {"domain": domain, "limit": limit // 2 if limit else 0}, "gau")
+            
+            # Combine outputs safely
+            wayback_out = wayback.get("output", "") or ""
+            gau_out = gau.get("output", "") or ""
+            
             return {
                 "success": True,
                 "wayback": wayback,
                 "gau": gau,
-                "combined_count": len(wayback.get("output", "").split("\n")) + len(gau.get("output", "").split("\n"))
+                "combined_count": len(wayback_out.split("\n")) + len(gau_out.split("\n"))
             }
     
     # ==================== VULN TESTING (3 unified tools) ====================
@@ -1039,7 +1080,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v4.5.3 - Consolidated")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v5.0.1 - Consolidated")
     parser.add_argument("--server", default=DEFAULT_SERVER)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -1047,7 +1088,7 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
     
-    logger.info("👻 Starting SpectreWeb MCP v4.5.3 - Self-Learning AI (67 tools)")
+    logger.info("👻 Starting SpectreWeb MCP v5.0.1 - Self-Learning AI (67 tools)")
     
     try:
         client = SpectreClient(args.server)

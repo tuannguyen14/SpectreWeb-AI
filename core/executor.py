@@ -67,7 +67,7 @@ class CommandExecutor:
     SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
     PROGRESS_BAR_WIDTH = 30
     
-    def __init__(self, command: str, timeout: int = 600):
+    def __init__(self, command: str, timeout: int = 600, stdout_callback=None, stderr_callback=None):
         self.command = command
         self.timeout = timeout
         self.process = None
@@ -76,6 +76,8 @@ class CommandExecutor:
         self.start_time = None
         self.bytes_received = 0
         self.lines_received = 0
+        self.stdout_callback = stdout_callback
+        self.stderr_callback = stderr_callback
 
     def _read_stdout(self):
         try:
@@ -84,6 +86,10 @@ class CommandExecutor:
                     self.stdout_data += line
                     self.bytes_received += len(line)
                     self.lines_received += 1
+                    
+                    if self.stdout_callback:
+                        self.stdout_callback(line)
+                        
                     # Beautiful output with line numbers
                     line_num = colorize(f"[{self.lines_received:4d}]", Colors.GRAY)
                     logger.info(f"  {line_num} {line.rstrip()}")
@@ -95,6 +101,10 @@ class CommandExecutor:
             for line in iter(self.process.stderr.readline, ''):
                 if line:
                     self.stderr_data += line
+                    
+                    if self.stderr_callback:
+                        self.stderr_callback(line)
+                        
                     err_prefix = colorize("ERR", Colors.RED, bold=True)
                     logger.warning(f"  [{err_prefix}] {line.rstrip()}")
         except:

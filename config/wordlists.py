@@ -186,18 +186,31 @@ def resolve_wordlist_path(name_or_path: str) -> str:
     If a wordlist name, return the full path.
     
     Examples:
-        resolve_wordlist_path("dir_medium") -> "/usr/share/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt"
+        resolve_wordlist_path("dir_medium") -> "/usr/share/SecLists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt"
         resolve_wordlist_path("/path/to/custom.txt") -> "/path/to/custom.txt"
     """
-    # If it's already a path (contains / or exists), return as-is
-    if "/" in name_or_path or os.path.exists(name_or_path):
-        return name_or_path
-    
-    # Try to resolve as wordlist name
+    # 1. Try to resolve as wordlist name (alias) first
     if name_or_path in WORDLISTS:
         return WORDLISTS[name_or_path]["path"]
+
+    # 2. If it exists as a path, return it
+    if os.path.exists(name_or_path):
+        return name_or_path
+
+    # 3. If it looks like a path but doesn't exist, try to fix common casing issues
+    if "/" in name_or_path:
+        # Auto-correct lowercase seclists to SecLists
+        if "/usr/share/seclists" in name_or_path.lower():
+            fixed_path = name_or_path.replace("/usr/share/seclists", "/usr/share/SecLists")
+            # Handle case where user might have typed /usr/share/SecLists manually but mixed other parts
+            if not os.path.exists(fixed_path):
+                 # Last ditch: simple string replace if it was purely lowercase mismatch
+                 fixed_path = name_or_path.replace("seclists", "SecLists")
+            
+            if os.path.exists(fixed_path):
+                return fixed_path
     
-    # Not found, return original (will fail later with better error)
+    # Return original if we can't fix it (let the tool fail naturally)
     return name_or_path
 
 def suggest_wordlist(task: str) -> List[Dict]:

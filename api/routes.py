@@ -1,7 +1,10 @@
 """Flask API Routes"""
 import re
 import shlex
-from flask import request, jsonify
+from flask import request, jsonify, Response, stream_with_context
+import queue
+import threading
+import json
 
 from core.executor import execute_command
 from core.file_manager import file_manager
@@ -60,6 +63,51 @@ from web.rate_limiter import get_rate_limiter
 from core.plugin import get_tool, list_tools, run_tool, ToolCategory
 
 
+def stream_tool_execution(tool, target, **kwargs):
+    """Helper to stream tool execution via generator"""
+    q = queue.Queue()
+    
+    def on_stdout(line):
+        q.put({"type": "stdout", "data": line})
+        
+    def on_stderr(line):
+        q.put({"type": "stderr", "data": line})
+        
+    def worker():
+        try:
+            result = tool.run(target, stdout_callback=on_stdout, stderr_callback=on_stderr, **kwargs)
+            q.put({"type": "result", "data": result.to_dict()})
+        except Exception as e:
+            q.put({"type": "error", "data": str(e)})
+        finally:
+            q.put(None) # Sentinel
+            
+    t = threading.Thread(target=worker)
+    t.start()
+    
+    try:
+        while True:
+            try:
+                item = q.get(timeout=1)  # Check for new data every second
+                if item is None:
+                    break
+                yield json.dumps(item) + "\n"
+            except queue.Empty:
+                # No data available, but tool might still be running
+                # Send a heartbeat to keep connection alive
+                yield json.dumps({"type": "heartbeat", "data": ""}) + "\n"
+                continue
+    except GeneratorExit:
+        # Client disconnected
+        pass
+    finally:
+        # Wait for thread to finish (with timeout)
+        t.join(timeout=2)
+        if t.is_alive():
+            # Thread is stuck, but we can't do much more
+            pass
+
+
 def register_routes(app):
     """Register all API routes"""
 
@@ -75,7 +123,7 @@ def register_routes(app):
     def health():
         return jsonify({
             "status": "healthy",
-            "version": "4.1.0-spectreweb",
+            "version": "4.7.1-spectreweb",
             "cache_stats": cache.get_stats(),
             "telemetry": telemetry.get_stats(),
             "ai_stats": {
@@ -270,7 +318,7 @@ def register_routes(app):
         telemetry.record(name, result.get("success", False))
         return jsonify(result)
 
-    def _run_plugin_tool(tool_name: str, target: str, options: dict = None, clean_output: bool = False):
+    def _run_plugin_tool(tool_name: str, target: str, options: dict = None, clean_output: bool = False, realtime: bool = True):
         tool = get_tool(tool_name)
         if not tool:
             return jsonify({"success": False, "error": f"Tool '{tool_name}' not found"}), 404
@@ -278,7 +326,7 @@ def register_routes(app):
             return jsonify({"success": False, "error": f"Tool '{tool_name}' is not installed"}), 400
 
         opts = options or {}
-        result = tool.run(target, **opts)
+        result = tool.run(target, realtime=realtime, **opts)
         telemetry.record(tool_name, result.success)
 
         output = result.output or ""
@@ -380,8 +428,13 @@ def register_routes(app):
         if not target:
             return jsonify({"success": False, "error": "Target is required"}), 400
 
+        if additional_args:
+            additional_args = str(additional_args)
+            additional_args = additional_args.replace("-status-code", "-sc").replace("--status-code", "-sc")
+            additional_args = additional_args.replace("-tech-detect", "-td").replace("--tech-detect", "-td")
+
         options = {
-            "additional_args": additional_args or "-silent -status-code -title -tech-detect",
+            "additional_args": additional_args or "-silent -sc -title -td",
         }
         return _run_plugin_tool("httpx", target, options, clean_output=True)
     
@@ -435,6 +488,11 @@ def register_routes(app):
         if not tool.is_available():
             return jsonify({"success": False, "error": "Tool 'waybackurls' is not installed"}), 400
 
+        if p.get("stream"):
+            return Response(stream_with_context(stream_tool_execution(
+                tool, domain, additional_args=additional_args
+            )), mimetype='application/x-ndjson')
+
         result = tool.run(domain, additional_args=additional_args)
         telemetry.record("waybackurls", result.success)
 
@@ -473,6 +531,14 @@ def register_routes(app):
             return jsonify({"success": False, "error": "Tool 'gau' not found"}), 404
         if not tool.is_available():
             return jsonify({"success": False, "error": "Tool 'gau' is not installed"}), 400
+
+        if p.get("stream"):
+            return Response(stream_with_context(stream_tool_execution(
+                tool, 
+                domain,
+                providers=p.get("providers", "") or "",
+                additional_args=p.get("additional_args", "") or ""
+            )), mimetype='application/x-ndjson')
 
         result = tool.run(
             domain,
