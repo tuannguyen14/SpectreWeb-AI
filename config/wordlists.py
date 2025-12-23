@@ -2,7 +2,19 @@
 import os
 from typing import Dict, Any, List
 
+_seclists_env = os.environ.get("SPECTREWEB_SECLISTS_PATH") or os.environ.get("SECLISTS_PATH")
+_seclists_candidates = [
+    _seclists_env,
+    "/usr/share/SecLists",
+    "/usr/share/seclists",
+    "/opt/SecLists",
+    "/opt/seclists",
+]
 SECLISTS_PATH = "/usr/share/SecLists"
+for _cand in _seclists_candidates:
+    if _cand and os.path.isdir(_cand):
+        SECLISTS_PATH = _cand
+        break
 
 WORDLISTS = {
     # Directory Discovery

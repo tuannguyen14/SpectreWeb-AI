@@ -5,6 +5,10 @@ import time
 import logging
 import sys
 import re
+import os
+import pty
+import select
+import errno
 from datetime import datetime
 from typing import Dict, Any
 
@@ -181,6 +185,119 @@ class CommandExecutor:
         # Clear progress line
         print("\r" + " " * 100 + "\r", end="", file=sys.stderr)
 
+    def _execute_with_pty(self) -> Dict[str, Any]:
+        """
+        Execute command using PTY for true unbuffered output.
+        This works with Go binaries and other programs that don't respect stdbuf.
+        """
+        master_fd, slave_fd = pty.openpty()
+        
+        try:
+            self.process = subprocess.Popen(
+                self.command, shell=True,
+                stdout=slave_fd, stderr=slave_fd,
+                stdin=subprocess.DEVNULL,
+                close_fds=True
+            )
+            os.close(slave_fd)
+            
+            pid_info = colorize(f"PID {self.process.pid}", Colors.MAGENTA, bold=True)
+            logger.info(f"  {pid_info} started (PTY mode)")
+            logger.info(f"  {colorize('─' * 50, Colors.GRAY)}")
+            
+            # Read from PTY with timeout
+            output_buffer = []
+            start = time.time()
+            
+            while True:
+                elapsed = time.time() - start
+                if elapsed > self.timeout:
+                    self.process.kill()
+                    break
+                
+                # Check if process finished
+                ret = self.process.poll()
+                
+                # Use select to check for available data
+                try:
+                    readable, _, _ = select.select([master_fd], [], [], 0.1)
+                except select.error:
+                    break
+                
+                if readable:
+                    try:
+                        data = os.read(master_fd, 4096)
+                        if not data:
+                            break
+                        text = data.decode('utf-8', errors='replace')
+                        output_buffer.append(text)
+                        
+                        # Process line by line for callbacks and logging
+                        for line in text.splitlines():
+                            if line.strip():
+                                self.lines_received += 1
+                                self.bytes_received += len(line)
+                                self.stdout_data += line + "\n"
+                                
+                                if self.stdout_callback:
+                                    self.stdout_callback(line + "\n")
+                                
+                                line_num = colorize(f"[{self.lines_received:4d}]", Colors.GRAY)
+                                logger.info(f"  {line_num} {line.rstrip()}")
+                    except OSError as e:
+                        if e.errno == errno.EIO:
+                            break
+                        raise
+                
+                if ret is not None and not readable:
+                    break
+            
+            try:
+                os.close(master_fd)
+            except:
+                pass
+            
+            return_code = self.process.wait()
+            execution_time = time.time() - start
+            success = return_code == 0
+            
+            # Beautiful result box
+            status_color = Colors.GREEN if success else Colors.RED
+            status_icon = "✅ SUCCESS" if success else "❌ FAILED"
+            
+            result_box = create_box(
+                status_icon,
+                [
+                    f"{colorize('Exit Code:', Colors.CYAN)} {return_code}",
+                    f"{colorize('Duration:', Colors.CYAN)} {execution_time:.2f}s",
+                    f"{colorize('Output:', Colors.CYAN)} {format_bytes(len(self.stdout_data))} ({self.lines_received} lines)",
+                ],
+                status_color
+            )
+            logger.info(f"\n{result_box}\n")
+            
+            return {
+                "success": success,
+                "stdout": self.stdout_data,
+                "stderr": "",
+                "output": self.stdout_data,
+                "return_code": return_code,
+                "command": self.command,
+                "execution_time": execution_time,
+                "output_lines": self.lines_received,
+                "output_bytes": self.bytes_received,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            try:
+                os.close(master_fd)
+            except:
+                pass
+            error_box = create_box("💥 ERROR", [str(e)], Colors.RED)
+            logger.error(f"\n{error_box}")
+            return {"success": False, "error": str(e), "command": self.command, "output": self.stdout_data}
+
     def execute(self) -> Dict[str, Any]:
         self.start_time = time.time()
         
@@ -197,6 +314,10 @@ class CommandExecutor:
                 Colors.BLUE
             )
             logger.info(f"\n{header}")
+            
+            # Use PTY for true unbuffered output (works with Go binaries)
+            if self.stdout_callback or self.stderr_callback:
+                return self._execute_with_pty()
             
             self.process = subprocess.Popen(
                 self.command, shell=True,
@@ -317,7 +438,7 @@ def resolve_wordlist_in_command(command: str) -> str:
             for match in matches:
                 wordlist_name = match.group(1)
                 # Only resolve if it doesn't look like a path
-                if '/' not in wordlist_name and not wordlist_name.startswith('.'):
+                if '/' not in wordlist_name and not wordlist_name.startswith('.') and '.' not in wordlist_name:
                     resolved_path = resolve_wordlist_path(wordlist_name)
                     if resolved_path != wordlist_name:
                         # Replace in command

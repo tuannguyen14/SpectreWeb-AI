@@ -6,6 +6,8 @@ Provides request ID injection, timing, logging, and error handling.
 
 import uuid
 import time
+import os
+import secrets
 from functools import wraps
 from flask import Flask, request, g, jsonify
 from typing import Callable, Optional
@@ -50,6 +52,20 @@ def setup_middleware(app: Flask):
             set_log_context(request_id=request_id, target=target)
         else:
             set_log_context(request_id=request_id)
+
+        api_key = os.environ.get("SPECTREWEB_API_KEY")
+        if api_key and request.path.startswith("/api/"):
+            provided = request.headers.get("X-API-Key") or ""
+            auth = request.headers.get("Authorization") or ""
+            if auth.lower().startswith("bearer "):
+                provided = auth[7:].strip()
+            if not provided or not secrets.compare_digest(str(provided), str(api_key)):
+                payload, _ = APIResponse.error(
+                    ErrorCode.INVALID_INPUT,
+                    "Unauthorized",
+                    status_code=401
+                )
+                return jsonify(payload), 401
         
         # Log request start (debug level)
         logger.debug(f"Request started: {request.method} {request.path}")

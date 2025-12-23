@@ -1,4 +1,5 @@
 """Flask API Routes"""
+import itertools
 import re
 import shlex
 from flask import request, jsonify, Response, stream_with_context
@@ -300,13 +301,17 @@ def register_routes(app):
     
     @app.route("/api/wordlists/preview/<name>", methods=["GET"])
     def preview_wordlist(name):
-        lines = int(request.args.get("lines", 20))
+        try:
+            lines = int(request.args.get("lines", 20))
+        except Exception:
+            lines = 20
+        lines = max(1, min(lines, 500))
         wl = get_wordlist(name)
         if not wl.get("success"):
             return jsonify(wl)
         
         with open(wl["path"], 'r', errors='ignore') as f:
-            preview = [l.strip() for l in f.readlines()[:lines]]
+            preview = [l.strip() for l in itertools.islice(f, lines)]
         return jsonify({"success": True, "name": name, "preview": preview})
     
     # ==========================

@@ -141,11 +141,11 @@ def mutate_payload(payload: str, techniques: List[str] = None) -> List[str]:
     
     if "encode" in techniques:
         mutations.extend([
-            urllib.parse.quote(payload),
-            urllib.parse.quote(payload, safe=''),
-            payload.replace('<', '&lt;').replace('>', '&gt;'),
-            ''.join(f'\\u{ord(c):04x}' for c in payload),
-            ''.join(f'%{ord(c):02x}' for c in payload),
+            urllib.parse.quote(str(payload)),
+            urllib.parse.quote(str(payload), safe=''),
+            str(payload).replace('<', '&lt;').replace('>', '&gt;'),
+            ''.join(f'\\u{ord(c):04x}' for c in str(payload)),
+            ''.join(f'%{ord(c):02x}' for c in str(payload)),
         ])
     
     if "whitespace" in techniques:

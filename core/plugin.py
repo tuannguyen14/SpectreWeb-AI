@@ -490,17 +490,59 @@ class FfufTool(BaseTool):
     binary_name = "ffuf"
     description = "Fast web fuzzer for directory and parameter discovery"
     default_timeout = 300
+
+    def _sanitize_additional_args(self, additional: str) -> List[str]:
+        if not additional:
+            return []
+        try:
+            parts = shlex.split(str(additional))
+        except Exception:
+            return []
+
+        forbidden_with_value = {"-u", "-w", "-o", "-of", "--wordlist"}
+        forbidden_prefixes = ("-u=", "-w=", "-o=", "-of=", "--wordlist=")
+
+        sanitized: List[str] = []
+        i = 0
+        while i < len(parts):
+            p = parts[i]
+            if p in forbidden_with_value:
+                i += 2
+                continue
+            if any(p.startswith(pref) for pref in forbidden_prefixes):
+                i += 1
+                continue
+            sanitized.append(p)
+            i += 1
+        return sanitized
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = [self.binary_path or "ffuf", "-u", target]
+        cmd = [self.binary_path or "ffuf", "-s", "-u", target]
         
         wordlist = kwargs.get("wordlist", "common")
+        raw_wordlist = wordlist
+        
+        # Map common dirb paths to aliases for SecLists preference
+        dirb_to_alias = {
+            "/usr/share/wordlists/dirb/common.txt": "common",
+            "/usr/share/wordlists/dirb/big.txt": "big",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt": "directory-list-2.3-medium",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt": "directory-list-2.3-small",
+        }
+        if wordlist in dirb_to_alias:
+            wordlist = dirb_to_alias[wordlist]
+        
         try:
-            if isinstance(wordlist, str) and wordlist and "/" not in wordlist and not wordlist.startswith("."):
-                from config import resolve_wordlist_path
+            if isinstance(wordlist, str) and wordlist and "/" not in wordlist and not wordlist.startswith(".") and "." not in wordlist:
+                from config import resolve_wordlist_path, WORDLISTS
+                if wordlist not in WORDLISTS:
+                    raise ValueError(f"Unknown wordlist: {wordlist}")
                 wordlist = resolve_wordlist_path(wordlist)
         except Exception:
             pass
+
+        if isinstance(wordlist, str) and wordlist and not os.path.exists(wordlist):
+            raise ValueError(f"Wordlist not found: {raw_wordlist}")
         cmd.extend(["-w", wordlist])
         
         match_codes = kwargs.get("match_codes", "200,301,302,403")
@@ -520,7 +562,7 @@ class FfufTool(BaseTool):
         
         additional = kwargs.get("additional_args", "")
         if additional:
-            cmd.extend(shlex.split(additional))
+            cmd.extend(self._sanitize_additional_args(additional))
         
         return cmd
     
@@ -617,7 +659,13 @@ class HttpxTool(BaseTool):
                 "-tech-detect": "-td",
                 "--tech-detect": "-td",
             }
-            cmd.extend([replacements.get(tok, tok) for tok in shlex.split(additional)])
+            tokens = [replacements.get(tok, tok) for tok in shlex.split(additional)]
+            # Always add -silent and -json for clean output
+            if "-silent" not in tokens and "--silent" not in tokens:
+                tokens.insert(0, "-silent")
+            if "-json" not in tokens and "--json" not in tokens:
+                tokens.append("-json")
+            cmd.extend(tokens)
 
         return cmd
 
@@ -626,10 +674,19 @@ class HttpxTool(BaseTool):
         return super().run(target, timeout=timeout, stdin=target, stdout_callback=stdout_callback, stderr_callback=stderr_callback, **kwargs)
     
     def parse_output(self, output: str, exit_code: int) -> Dict:
-        lines = [line.strip() for line in output.split('\n') if line.strip()]
+        import json
+        results = []
+        for line in output.split('\n'):
+            line = line.strip()
+            if line:
+                try:
+                    data = json.loads(line)
+                    results.append(data)
+                except json.JSONDecodeError:
+                    continue
         return {
-            "results": lines,
-            "total": len(lines)
+            "results": results,
+            "total": len(results)
         }
 
 
@@ -720,7 +777,7 @@ class DalfoxTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = [self.binary_path or "dalfox", "url", target]
+        cmd = [self.binary_path or "dalfox", "-s", "url", target]
         
         param = kwargs.get("param", "")
         if param:
@@ -762,7 +819,7 @@ class SqlmapTool(BaseTool):
     default_timeout = 600
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = [self.binary_path or "sqlmap", "-u", target, "--batch"]
+        cmd = [self.binary_path or "sqlmap", "-u", target, "--batch", "--disable-coloring"]
         
         data = kwargs.get("data", "")
         if data:
@@ -864,19 +921,35 @@ class ArjunTool(BaseTool):
     default_timeout = 300
     
     def build_command(self, target: str, **kwargs) -> List[str]:
-        cmd = [self.binary_path or "arjun", "-u", target]
+        cmd = [self.binary_path or "arjun", "-s", "-u", target]
         
         method = kwargs.get("method", "GET")
         cmd.extend(["-m", method])
         
         wordlist = kwargs.get("wordlist", "")
+        raw_wordlist = wordlist
+        
+        # Map common dirb paths to aliases for SecLists preference
+        dirb_to_alias = {
+            "/usr/share/wordlists/dirb/common.txt": "common",
+            "/usr/share/wordlists/dirb/big.txt": "big",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt": "directory-list-2.3-medium",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt": "directory-list-2.3-small",
+        }
+        if wordlist in dirb_to_alias:
+            wordlist = dirb_to_alias[wordlist]
+        
         if wordlist:
             try:
-                if isinstance(wordlist, str) and wordlist and "/" not in wordlist and not wordlist.startswith("."):
-                    from config import resolve_wordlist_path
+                if isinstance(wordlist, str) and wordlist and "/" not in wordlist and not wordlist.startswith(".") and "." not in wordlist:
+                    from config import resolve_wordlist_path, WORDLISTS
+                    if wordlist not in WORDLISTS:
+                        raise ValueError(f"Unknown wordlist: {wordlist}")
                     wordlist = resolve_wordlist_path(wordlist)
             except Exception:
                 pass
+            if isinstance(wordlist, str) and wordlist and not os.path.exists(wordlist):
+                raise ValueError(f"Wordlist not found: {raw_wordlist}")
             cmd.extend(["-w", wordlist])
         
         additional = kwargs.get("additional_args", "")
