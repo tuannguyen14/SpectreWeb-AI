@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI MCP Client v5.0.2 - Consolidated Tools
+SpectreWeb AI MCP Client v5.0.3 - Consolidated Tools
 Phantom Recon Engine - AI-Powered Web Penetration Testing
 
 Changes from v3.0:
@@ -1080,7 +1080,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v5.0.2 - Consolidated")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v5.0.3 - Consolidated")
     parser.add_argument("--server", default=DEFAULT_SERVER)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -1088,7 +1088,7 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
     
-    logger.info("👻 Starting SpectreWeb MCP v5.0.2 - Self-Learning AI (67 tools)")
+    logger.info("👻 Starting SpectreWeb MCP v5.0.3 - Self-Learning AI (67 tools)")
     
     try:
         client = SpectreClient(args.server)

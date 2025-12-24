@@ -1,4 +1,4 @@
-"""SpectreWeb Core Module v5.0.2 - Self-Learning AI"""
+"""SpectreWeb Core Module v5.0.3 - Self-Learning AI"""
 from .cache import SimpleCache
 from .executor import CommandExecutor, execute_command
 from .file_manager import FileManager

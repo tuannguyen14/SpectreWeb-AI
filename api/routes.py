@@ -522,16 +522,28 @@ def register_routes(app):
         telemetry.record("waybackurls", result.success)
 
         urls = [l.strip() for l in (result.output or "").splitlines() if l.strip()]
+        total_urls = len(urls)
         if limit and limit > 0:
             urls = urls[:limit]
+        
+        # Truncate URLs list if too large (max 1000 URLs in response)
+        max_urls_in_response = 1000
+        urls_truncated = len(urls) > max_urls_in_response
+        if urls_truncated:
+            urls = urls[:max_urls_in_response]
 
         payload = {
             "success": result.success,
             "command": result.command,
-            "output": "\n".join(urls),
+            "output": "\n".join(urls[:200]),  # Only first 200 in output field
             "return_code": result.exit_code,
             "execution_time": result.duration_seconds,
-            "data": {"urls": urls, "total": len(urls)},
+            "data": {
+                "urls": urls,
+                "total": total_urls,
+                "returned": len(urls),
+                "truncated": urls_truncated
+            },
         }
         if result.error:
             payload["error"] = result.error

@@ -904,6 +904,13 @@ class DeepSecretHunter:
         
         self.report.summary = summary
         
+        # Truncate secrets list if too large to prevent AI agent stuck
+        max_secrets = 100
+        total_secrets = len(secrets)
+        truncated = total_secrets > max_secrets
+        if truncated:
+            secrets = secrets[:max_secrets]
+        
         return {
             "target": self.report.target,
             "started_at": self.report.started_at,
@@ -911,9 +918,12 @@ class DeepSecretHunter:
             "stages_completed": self.report.stages_completed,
             "sources_scanned": self.report.sources_scanned,
             "summary": summary,
+            "secrets_total": total_secrets,
+            "secrets_returned": len(secrets),
+            "secrets_truncated": truncated,
             "secrets": [s.to_dict() for s in secrets],
-            "exploitation_paths": self.report.exploitation_paths,
-            "recommendations": self.report.recommendations,
+            "exploitation_paths": self.report.exploitation_paths[:20] if len(self.report.exploitation_paths) > 20 else self.report.exploitation_paths,
+            "recommendations": self.report.recommendations[:20] if len(self.report.recommendations) > 20 else self.report.recommendations,
         }
 
 
