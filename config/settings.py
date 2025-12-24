@@ -1,6 +1,9 @@
 """Server Settings and Constants"""
 import os
 
+# Version
+VERSION = "5.0.1"
+
 # SpectreWeb AI Server Configuration
 API_PORT = int(os.environ.get('SPECTREWEB_PORT', 8888))
 API_HOST = os.environ.get('SPECTREWEB_HOST', '127.0.0.1')
@@ -44,7 +47,7 @@ def create_banner() -> str:
                ╚███╔███╔╝███████╗██████╔╝
                 ╚══╝╚══╝ ╚══════╝╚═════╝ \033[0m
 \033[38;5;135m╔═════════════════════════════════════════════════════════════════════╗
-║  \033[38;5;51m👻 SpectreWeb AI v5.0.1 - Phantom Recon Engine\033[38;5;135m                       ║
+║  \033[38;5;51m👻 SpectreWeb AI v5.0.2 - Phantom Recon Engine\033[38;5;135m                       ║
 ╠═════════════════════════════════════════════════════════════════════╣
 ║  \033[38;5;46m✨ NEW:\033[0m \033[38;5;135mSmart Analyzer | Beautiful Output | AI Insights\033[38;5;135m            ║
 ║  \033[38;5;226m🎯 Bug Bounty\033[38;5;135m | \033[38;5;196m🔐 Web Security\033[38;5;135m | \033[38;5;51m📊 Smart Reporting\033[38;5;135m               ║

@@ -2,6 +2,9 @@
 import itertools
 import re
 import shlex
+import time
+import urllib.parse
+import concurrent.futures
 from flask import request, jsonify, Response, stream_with_context
 import queue
 import threading
@@ -62,11 +65,17 @@ from core.job_queue import get_job_queue, JobStatus
 from core.response import APIResponse, ErrorCode, set_request_id
 from web.rate_limiter import get_rate_limiter
 from core.plugin import get_tool, list_tools, run_tool, ToolCategory
+from config.settings import VERSION
+from core.learning_store import get_store, FeedbackLabel
+from core.local_ai import get_local_ai
+from core.ai_orchestrator import get_orchestrator
 
 
 def stream_tool_execution(tool, target, **kwargs):
-    """Helper to stream tool execution via generator"""
+    """Helper to stream tool execution via generator with timeout protection"""
     q = queue.Queue()
+    max_runtime = kwargs.pop('max_runtime', 1800)  # Default 30 minutes max
+    start_time = time.time()
     
     def on_stdout(line):
         q.put({"type": "stdout", "data": line})
@@ -81,32 +90,43 @@ def stream_tool_execution(tool, target, **kwargs):
         except Exception as e:
             q.put({"type": "error", "data": str(e)})
         finally:
-            q.put(None) # Sentinel
+            q.put(None)  # Sentinel
             
-    t = threading.Thread(target=worker)
+    t = threading.Thread(target=worker, daemon=True)
     t.start()
+    
+    heartbeat_count = 0
+    max_heartbeats = 60  # Max 60 consecutive heartbeats (60 seconds no output)
     
     try:
         while True:
+            # Check max runtime
+            elapsed = time.time() - start_time
+            if elapsed > max_runtime:
+                yield json.dumps({"type": "error", "data": f"Max runtime exceeded ({max_runtime}s)"}) + "\n"
+                break
+                
             try:
-                item = q.get(timeout=1)  # Check for new data every second
+                item = q.get(timeout=1)
                 if item is None:
                     break
+                heartbeat_count = 0  # Reset on actual data
                 yield json.dumps(item) + "\n"
             except queue.Empty:
-                # No data available, but tool might still be running
-                # Send a heartbeat to keep connection alive
-                yield json.dumps({"type": "heartbeat", "data": ""}) + "\n"
+                heartbeat_count += 1
+                if heartbeat_count > max_heartbeats:
+                    yield json.dumps({"type": "warning", "data": "Long running operation, still waiting..."}) + "\n"
+                    heartbeat_count = 0  # Reset to continue
+                else:
+                    yield json.dumps({"type": "heartbeat", "data": ""}) + "\n"
                 continue
     except GeneratorExit:
-        # Client disconnected
         pass
     finally:
-        # Wait for thread to finish (with timeout)
-        t.join(timeout=2)
+        t.join(timeout=5)
         if t.is_alive():
-            # Thread is stuck, but we can't do much more
-            pass
+            import logging
+            logging.getLogger(__name__).warning("Stream worker thread still alive after timeout")
 
 
 def register_routes(app):
@@ -124,7 +144,7 @@ def register_routes(app):
     def health():
         return jsonify({
             "status": "healthy",
-            "version": "4.7.1-spectreweb",
+            "version": VERSION,
             "cache_stats": cache.get_stats(),
             "telemetry": telemetry.get_stats(),
             "ai_stats": {
@@ -713,10 +733,9 @@ def register_routes(app):
             "http://0.0.0.0",
         ]
         
-        import urllib.parse as urlparse
         results = []
         for payload in payloads:
-            encoded = urlparse.quote(payload, safe='')
+            encoded = urllib.parse.quote(payload, safe='')
             test_url = f"{url}{'&' if '?' in url else '?'}{param}={encoded}" if param else url
             resp = make_request(test_url)
             interesting = any(x in resp.get("body", "").lower() for x in ["root:", "ami-", "instance", "metadata"])
@@ -1754,10 +1773,6 @@ def register_routes(app):
     # ==========================
     # SELF-LEARNING AI
     # ==========================
-    
-    from core.learning_store import get_store, FeedbackLabel
-    from core.local_ai import get_local_ai
-    from core.ai_orchestrator import get_orchestrator
     
     @app.route("/api/ai/status", methods=["GET"])
     def ai_status():

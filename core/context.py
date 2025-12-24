@@ -11,8 +11,10 @@ import hashlib
 import threading
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from urllib.parse import urlparse
 import glob
+from urllib.parse import urlparse
+
+from core.url_utils import extract_domain, extract_root_domain
 
 REPORTS_BASE_DIR = "/tmp/spectreweb/targets"
 
@@ -59,28 +61,18 @@ class TargetContext:
     
     def _extract_domain(self, target: str) -> str:
         """Extract root domain from target"""
-        try:
-            parsed = urlparse(target if '://' in target else f'https://{target}')
-            host = parsed.hostname or parsed.netloc or parsed.path.split('/')[0]
-            parts = host.split('.')
-            # Get root domain (last 2 parts for most TLDs)
-            if len(parts) >= 2:
-                return '.'.join(parts[-2:])
-            return host
-        except:
-            return target
+        return extract_root_domain(target) or target
     
     def _extract_subdomain(self, target: str) -> Optional[str]:
         """Extract subdomain if present"""
-        try:
-            parsed = urlparse(target if '://' in target else f'https://{target}')
-            host = parsed.hostname or parsed.netloc or parsed.path.split('/')[0]
-            parts = host.split('.')
-            if len(parts) > 2:
-                return '.'.join(parts[:-2])
-            return None
-        except:
-            return None
+        domain = extract_domain(target)
+        root = extract_root_domain(target)
+        if domain and root and domain != root:
+            # Subdomain is the part before root domain
+            if domain.endswith(root):
+                subdomain = domain[:-len(root)].rstrip('.')
+                return subdomain if subdomain else None
+        return None
     
     def _init_directories(self):
         """Create directory structure"""
@@ -358,20 +350,9 @@ class TargetContext:
 _contexts: Dict[str, TargetContext] = {}
 _contexts_lock = threading.Lock()
 
-def _extract_root_domain(target: str) -> str:
-    try:
-        parsed = urlparse(target if '://' in target else f'https://{target}')
-        host = parsed.hostname or parsed.netloc or parsed.path.split('/')[0]
-        parts = host.split('.')
-        if len(parts) >= 2:
-            return '.'.join(parts[-2:])
-        return host
-    except:
-        return target
-
 def get_context(target: str) -> TargetContext:
     """Get or create context for target"""
-    domain = _extract_root_domain(target)
+    domain = extract_root_domain(target) or target
     with _contexts_lock:
         if domain not in _contexts:
             _contexts[domain] = TargetContext(target)

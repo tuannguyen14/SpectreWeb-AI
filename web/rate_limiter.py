@@ -9,7 +9,8 @@ import threading
 from typing import Dict, Optional
 from collections import defaultdict
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+
+from core.url_utils import extract_domain
 
 
 @dataclass
@@ -107,13 +108,8 @@ class RateLimiter:
     
     def _extract_domain(self, url: str) -> str:
         """Extract domain from URL for rate limiting"""
-        if not url:
-            return "unknown"
-        try:
-            parsed = urlparse(url)
-            return (parsed.hostname or "unknown").lower()
-        except Exception:
-            return "unknown"
+        domain = extract_domain(url)
+        return domain if domain else "unknown"
     
     def _get_bucket(self, domain: str) -> DomainBucket:
         """Get or create bucket for domain"""

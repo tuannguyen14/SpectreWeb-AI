@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI - Smart Analyzer v5.0.1
+SpectreWeb AI - Smart Analyzer v5.0.2
 AI-powered analysis engine for intelligent vulnerability detection
 """
 

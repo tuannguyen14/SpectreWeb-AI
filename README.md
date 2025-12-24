@@ -1,4 +1,4 @@
-# 👻 Spectreweb AI v5.0.1
+# 👻 Spectreweb AI v5.0.2
 
 > **Self-Learning AI for Manual Web Penetration Testing**
 >
@@ -227,7 +227,7 @@ go install github.com/tomnomnom/waybackurls@latest
 go install github.com/lc/gau/v2/cmd/gau@latest
 go install github.com/hahwul/dalfox/v2@latest
 
-# Add to PATH
+# Add to PATH`
 echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 ```
 
@@ -237,7 +237,7 @@ echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 python server.py
 
 # Output:
-# 👻 Spectreweb AI v5.0.1 - Starting...
+# 👻 Spectreweb AI v5.0.2 - Starting...
 # ✅ Server running at http://127.0.0.1:8888
 ```
 
@@ -418,7 +418,7 @@ MIT License – Use responsibly.
 
 **Built for bug bounty hunters and security engineers who think, not just scan.**
 
-# 👻 Spectreweb AI v5.0.1
+# 👻 Spectreweb AI v5.0.2
 
 [![Version](https://img.shields.io/badge/version-4.7.1-blue.svg)]()
 [![Tools](https://img.shields.io/badge/MCP_Tools-67-green.svg)]()

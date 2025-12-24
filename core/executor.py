@@ -254,7 +254,7 @@ class CommandExecutor:
             
             try:
                 os.close(master_fd)
-            except:
+            except OSError:
                 pass
             
             return_code = self.process.wait()
