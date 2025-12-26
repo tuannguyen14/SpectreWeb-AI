@@ -1,4 +1,4 @@
-# 👻 Spectreweb AI v5.0.3
+# 👻 Spectreweb AI v5.1.1
 
 > **Self-Learning AI for Manual Web Penetration Testing**
 >
@@ -237,7 +237,7 @@ echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 python server.py
 
 # Output:
-# 👻 Spectreweb AI v5.0.3 - Starting...
+# 👻 Spectreweb AI v5.1.1 - Starting...
 # ✅ Server running at http://127.0.0.1:8888
 ```
 
@@ -418,7 +418,7 @@ MIT License – Use responsibly.
 
 **Built for bug bounty hunters and security engineers who think, not just scan.**
 
-# 👻 Spectreweb AI v5.0.3
+# 👻 Spectreweb AI v5.1.1
 
 [![Version](https://img.shields.io/badge/version-4.7.1-blue.svg)]()
 [![Tools](https://img.shields.io/badge/MCP_Tools-67-green.svg)]()

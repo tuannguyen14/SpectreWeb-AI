@@ -845,107 +845,72 @@ COMMON_PARAMS = [
 ]
 
 
-def discover_params(url: str, wordlist: List[str] = None, method: str = "GET") -> Dict[str, Any]:
+def discover_params(url: str, wordlist: Any = None, method: str = "GET") -> Dict[str, Any]:
     """
-    Discover hidden parameters on a URL with concurrent testing and progress tracking.
+    Discover hidden parameters on a URL using Arjun tool.
+    
+    Args:
+        url: Target URL
+        wordlist: Wordlist name/alias or path (optional, uses Arjun's default if not provided)
+        method: HTTP method (GET/POST)
+    
+    Returns:
+        Dict with discovered parameters
     """
-    import sys
+    from core.plugin import run_tool
+    import tempfile
+    import os
     
-    wordlist = wordlist or COMMON_PARAMS
-    found_params = []
-    
-    # Progress tracking
-    start_time = time.time()
-    total_params = len(wordlist)
-    tested_count = 0
-    lock = threading.Lock()
-    
-    print(f"[PROGRESS] Parameter Discovery: Starting scan of {total_params} params on {url}")
-    sys.stdout.flush()
-    
-    # Get baseline response
-    baseline = make_request(url, method=method, timeout=10)
-    baseline_length = len(baseline.get("body", ""))
-    baseline_status = baseline.get("status_code", 0)
-    
-    print(f"[PROGRESS] Baseline: status={baseline_status}, length={baseline_length}")
-    sys.stdout.flush()
-    
-    parsed = urlparse(url)
-    existing_params = parse_qs(parsed.query)
-    
-    def test_param(param: str) -> Optional[Dict]:
-        """Test a single parameter with multiple values."""
-        nonlocal tested_count
+    tmp_wordlist_path = None
+    try:
+        kwargs = {
+            "method": method
+        }
         
-        if param in existing_params:
-            return None
+        # Backward compatibility: if caller passes a list, write it to a temp file for Arjun
+        if isinstance(wordlist, list):
+            if wordlist:
+                fd, tmp_wordlist_path = tempfile.mkstemp(prefix="spectreweb_params_", suffix=".txt")
+                with os.fdopen(fd, "w") as f:
+                    for item in wordlist:
+                        s = str(item).strip()
+                        if s:
+                            f.write(s + "\n")
+                kwargs["wordlist"] = tmp_wordlist_path
+        elif wordlist:
+            kwargs["wordlist"] = wordlist
         
-        test_values = ["1", "test", "true", "../etc/passwd"]
-        
-        for test_value in test_values:
+        # Execute Arjun
+        result = run_tool("arjun", url, **kwargs)
+    finally:
+        if tmp_wordlist_path:
             try:
-                if method == "GET":
-                    separator = "&" if "?" in url else "?"
-                    test_url = f"{url}{separator}{param}={test_value}"
-                    resp = make_request(test_url, timeout=10)
-                else:
-                    resp = make_request(url, method=method, data={param: test_value}, timeout=10)
-                
-                resp_length = len(resp.get("body", ""))
-                resp_status = resp.get("status_code", 0)
-                
-                length_diff = abs(resp_length - baseline_length)
-                if length_diff > 50 or resp_status != baseline_status:
-                    return {
-                        "param": param,
-                        "value": test_value,
-                        "length_diff": length_diff,
-                        "status_change": resp_status != baseline_status,
-                        "new_status": resp_status
-                    }
-            except Exception:
-                continue
-        
-        return None
+                os.unlink(tmp_wordlist_path)
+            except OSError:
+                pass
     
-    # Use ThreadPoolExecutor for concurrent testing
-    max_workers = 10  # Limit concurrent requests
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(test_param, param): param for param in wordlist}
-        
-        for future in concurrent.futures.as_completed(futures):
-            with lock:
-                tested_count += 1
-                progress = (tested_count / total_params) * 100
-                elapsed = time.time() - start_time
-                eta = (elapsed / tested_count) * (total_params - tested_count) if tested_count > 0 else 0
-                
-                # Print progress every 5 params or on found
-                result = future.result()
-                if result:
-                    found_params.append(result)
-                    print(f"[FOUND] {result['param']}={result['value']} (status={result.get('new_status')}, diff={result['length_diff']})")
-                    sys.stdout.flush()
-                
-                if tested_count % 5 == 0 or tested_count == total_params:
-                    print(f"[PROGRESS] Parameter Discovery: {tested_count}/{total_params} ({progress:.1f}%) - Found: {len(found_params)} - ETA: {eta:.1f}s")
-                    sys.stdout.flush()
+    if not result.success:
+        return {
+            "success": False,
+            "error": result.error or "Arjun execution failed",
+            "url": url,
+            "method": method
+        }
     
-    elapsed_total = time.time() - start_time
-    print(f"[COMPLETE] Parameter Discovery: {len(found_params)} params found in {elapsed_total:.1f}s")
-    sys.stdout.flush()
+    # Parse Arjun output
+    parsed = result.parsed_data or {}
+    parameters = parsed.get("parameters", [])
     
     return {
         "success": True,
         "url": url,
         "method": method,
-        "baseline_length": baseline_length,
-        "baseline_status": baseline_status,
-        "found_params": found_params,
-        "total_found": len(found_params),
-        "total_tested": tested_count,
-        "elapsed_seconds": round(elapsed_total, 2)
+        "found_params": [{"param": p} for p in parameters],
+        "total_found": len(parameters),
+        "parameters": parameters,
+        "duration": result.duration_seconds,
+        "tool": "arjun",
+        "raw_output": result.output[:1000] if result.output else None
     }
 
 

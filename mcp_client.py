@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI MCP Client v5.0.3 - Consolidated Tools
+SpectreWeb AI MCP Client v5.1.1 - Consolidated Tools
 Phantom Recon Engine - AI-Powered Web Penetration Testing
 
 Changes from v3.0:
@@ -475,13 +475,22 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
     # ==================== PARAMETER DISCOVERY (1 tool) ====================
     
     @mcp.tool()
-    def discover_params(url: str, method: str = "GET", wordlist: list = None) -> Dict[str, Any]:
+    def discover_params(url: str, method: str = "GET", wordlist: str = None) -> Dict[str, Any]:
         """
-        🔎 Discover hidden parameters on URL.
+        🔎 Discover hidden parameters on URL using Arjun.
         
-        Tests 80+ common parameters: id, user, token, file, path, debug, admin, etc.
+        Uses Arjun - industry-standard parameter discovery tool with advanced detection techniques.
+        Supports custom wordlists or uses Arjun's built-in wordlist.
+        
+        Args:
+            url: Target URL
+            method: HTTP method (GET/POST)
+            wordlist: Wordlist name/alias (e.g., "params_common") or path (optional)
+        
+        Returns:
+            Discovered parameters with detection details
         """
-        logger.info(f"🔎 Discovering params: {url}")
+        logger.info(f"🔎 Discovering params with Arjun: {url}")
         return client.post("api/scan/params", {"url": url, "method": method, "wordlist": wordlist})
     
     # ==================== IDOR & PRIVESC (1 unified tool) ====================
@@ -1080,7 +1089,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v5.0.3 - Consolidated")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v5.1.1 - Consolidated")
     parser.add_argument("--server", default=DEFAULT_SERVER)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -1088,7 +1097,7 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
     
-    logger.info("👻 Starting SpectreWeb MCP v5.0.3 - Self-Learning AI (67 tools)")
+    logger.info("👻 Starting SpectreWeb MCP v5.1.1 - Self-Learning AI (67 tools)")
     
     try:
         client = SpectreClient(args.server)

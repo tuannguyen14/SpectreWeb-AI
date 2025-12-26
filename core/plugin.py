@@ -523,11 +523,12 @@ class FfufTool(BaseTool):
         raw_wordlist = wordlist
         
         # Map common dirb paths to aliases for SecLists preference
+        from config import SECLISTS_PATH
         dirb_to_alias = {
-            "/usr/share/wordlists/dirb/common.txt": "common",
-            "/usr/share/wordlists/dirb/big.txt": "big",
-            "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt": "directory-list-2.3-medium",
-            "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt": "directory-list-2.3-small",
+            f"{SECLISTS_PATH}/Discovery/Web-Content/common.txt": "common",
+            f"{SECLISTS_PATH}/Discovery/Web-Content/big.txt": "big",
+            f"{SECLISTS_PATH}/Discovery/Web-Content/directory-list-2.3-medium.txt": "dir_medium",
+            f"{SECLISTS_PATH}/Discovery/Web-Content/directory-list-2.3-small.txt": "dir_small",
         }
         if wordlist in dirb_to_alias:
             wordlist = dirb_to_alias[wordlist]
@@ -930,11 +931,12 @@ class ArjunTool(BaseTool):
         raw_wordlist = wordlist
         
         # Map common dirb paths to aliases for SecLists preference
+        from config import SECLISTS_PATH
         dirb_to_alias = {
-            "/usr/share/wordlists/dirb/common.txt": "common",
-            "/usr/share/wordlists/dirb/big.txt": "big",
-            "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt": "directory-list-2.3-medium",
-            "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt": "directory-list-2.3-small",
+            f"{SECLISTS_PATH}/Discovery/Web-Content/common.txt": "common",
+            f"{SECLISTS_PATH}/Discovery/Web-Content/big.txt": "big",
+            f"{SECLISTS_PATH}/Discovery/Web-Content/directory-list-2.3-medium.txt": "dir_medium",
+            f"{SECLISTS_PATH}/Discovery/Web-Content/directory-list-2.3-small.txt": "dir_small",
         }
         if wordlist in dirb_to_alias:
             wordlist = dirb_to_alias[wordlist]
@@ -959,13 +961,56 @@ class ArjunTool(BaseTool):
         return cmd
     
     def parse_output(self, output: str, exit_code: int) -> Dict:
+        """
+        Parse Arjun output to extract discovered parameters.
+        
+        Arjun output formats:
+        - [+] Valid parameter found: param_name
+        - Valid parameter found: param_name
+        - JSON output: {"parameters": ["param1", "param2"]}
+        """
         params = []
+        
+        # Try JSON parsing first (if -oJ flag was used)
+        try:
+            import json
+            if output.strip().startswith('{'):
+                data = json.loads(output)
+                if "parameters" in data:
+                    params = data["parameters"]
+                    return {
+                        "parameters": params,
+                        "total": len(params)
+                    }
+        except (json.JSONDecodeError, ValueError):
+            pass
+        
+        # Parse text output
         for line in output.split('\n'):
-            if 'Valid parameter found:' in line or '[param]' in line.lower():
-                # Extract parameter name
+            line = line.strip()
+            
+            # Match various Arjun output patterns
+            if 'Valid parameter found:' in line or 'parameter found:' in line.lower():
+                # Extract parameter name after colon
                 parts = line.split(':')
                 if len(parts) > 1:
-                    params.append(parts[-1].strip())
+                    param = parts[-1].strip()
+                    if param and param not in params:
+                        params.append(param)
+            
+            # Match [+] param_name format
+            elif line.startswith('[+]') and 'parameter' not in line.lower():
+                param = line.replace('[+]', '').strip()
+                if param and param not in params:
+                    params.append(param)
+            
+            # Match lines with just parameter names (after header)
+            elif line and not line.startswith('[') and not line.startswith('Arjun'):
+                # Simple heuristic: if it's a short alphanumeric string, might be a param
+                if len(line) < 50 and line.replace('_', '').replace('-', '').isalnum():
+                    if line not in params and line.lower() not in ['get', 'post', 'url', 'target']:
+                        params.append(line)
+        
         return {
             "parameters": params,
             "total": len(params)
