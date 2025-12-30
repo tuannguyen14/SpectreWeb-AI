@@ -517,14 +517,30 @@ class FfufTool(BaseTool):
         return sanitized
     
     def build_command(self, target: str, **kwargs) -> List[str]:
+        # Ensure URL contains FUZZ keyword for fuzzing
+        if "FUZZ" not in target:
+            if target.endswith("/"):
+                target = target + "FUZZ"
+            else:
+                target = target + "/FUZZ"
+        
         cmd = [self.binary_path or "ffuf", "-s", "-u", target]
         
         wordlist = kwargs.get("wordlist", "common")
         raw_wordlist = wordlist
         
+        # Handle empty or None wordlist - default to "common"
+        if not wordlist or (isinstance(wordlist, str) and not wordlist.strip()):
+            wordlist = "common"
+            raw_wordlist = "common"
+        
         # Map common dirb paths to aliases for SecLists preference
         from config import SECLISTS_PATH
         dirb_to_alias = {
+            "/usr/share/wordlists/dirb/common.txt": "common",
+            "/usr/share/wordlists/dirb/big.txt": "big",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt": "dir_medium",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt": "dir_small",
             f"{SECLISTS_PATH}/Discovery/Web-Content/common.txt": "common",
             f"{SECLISTS_PATH}/Discovery/Web-Content/big.txt": "big",
             f"{SECLISTS_PATH}/Discovery/Web-Content/directory-list-2.3-medium.txt": "dir_medium",
@@ -542,8 +558,9 @@ class FfufTool(BaseTool):
         except Exception:
             pass
 
-        if isinstance(wordlist, str) and wordlist and not os.path.exists(wordlist):
-            raise ValueError(f"Wordlist not found: {raw_wordlist}")
+        # Final validation - ensure we have a valid wordlist file
+        if not isinstance(wordlist, str) or not wordlist or not os.path.exists(wordlist):
+            raise ValueError(f"Wordlist not found or invalid: {raw_wordlist}")
         cmd.extend(["-w", wordlist])
         
         match_codes = kwargs.get("match_codes", "200,301,302,403")
@@ -698,7 +715,7 @@ class WhatwebTool(BaseTool):
     category = ToolCategory.RECON
     binary_name = "whatweb"
     description = "Web technology fingerprinting"
-    default_timeout = 120
+    default_timeout = 500
     
     def build_command(self, target: str, **kwargs) -> List[str]:
         cmd = [self.binary_path or "whatweb"]
@@ -933,6 +950,10 @@ class ArjunTool(BaseTool):
         # Map common dirb paths to aliases for SecLists preference
         from config import SECLISTS_PATH
         dirb_to_alias = {
+            "/usr/share/wordlists/dirb/common.txt": "common",
+            "/usr/share/wordlists/dirb/big.txt": "big",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt": "dir_medium",
+            "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt": "dir_small",
             f"{SECLISTS_PATH}/Discovery/Web-Content/common.txt": "common",
             f"{SECLISTS_PATH}/Discovery/Web-Content/big.txt": "big",
             f"{SECLISTS_PATH}/Discovery/Web-Content/directory-list-2.3-medium.txt": "dir_medium",

@@ -18,28 +18,39 @@ for _cand in _seclists_candidates:
 
 WORDLISTS = {
     # Directory Discovery
-    "dir_small": {
-        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt",
-        "purpose": "Quick directory enumeration - 87K entries",
-        "use_when": "Initial recon, time-limited",
-        "category": "directory"
-    },
     "dir_medium": {
         "path": f"{SECLISTS_PATH}/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt",
-        "purpose": "Standard directory enumeration - 220K entries",
-        "use_when": "Normal pentesting",
+        "purpose": "Extended directory enumeration - 220K entries (Slow)",
+        "use_when": "Thorough testing only, after smaller lists",
+        "priority": 90,
         "category": "directory"
     },
     "dir_big": {
         "path": f"{SECLISTS_PATH}/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-big.txt",
-        "purpose": "Comprehensive enumeration - 1.2M entries",
-        "use_when": "Thorough testing, bug bounty",
+        "purpose": "Comprehensive enumeration - 1.2M entries (Very Slow)",
+        "use_when": "Exhaustive testing, bug bounty",
+        "priority": 100,
         "category": "directory"
     },
     "common": {
         "path": f"{SECLISTS_PATH}/Discovery/Web-Content/common.txt",
-        "purpose": "Most common web paths - 4.7K entries",
-        "use_when": "Very quick initial scan",
+        "purpose": "Standard web paths - 4.7K entries (Fast & Recommended)",
+        "use_when": "Initial discovery and standard scans",
+        "priority": 10,
+        "category": "directory"
+    },
+    "big": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/big.txt",
+        "purpose": "Large common paths - 20K entries (Balanced)",
+        "use_when": "Standard pentesting after common.txt",
+        "priority": 20,
+        "category": "directory"
+    },
+    "dir_small": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt",
+        "purpose": "Quick directory enumeration - 87K entries",
+        "use_when": "Secondary scan if common/big fail",
+        "priority": 30,
         "category": "directory"
     },
     
@@ -205,6 +216,21 @@ def resolve_wordlist_path(name_or_path: str) -> str:
     if name_or_path in WORDLISTS:
         return WORDLISTS[name_or_path]["path"]
 
+    # Prefer SecLists equivalents for legacy Kali wordlists paths (even if legacy file exists)
+    if isinstance(name_or_path, str) and "/usr/share/wordlists/" in name_or_path:
+        try:
+            legacy_map = {
+                "/usr/share/wordlists/dirb/common.txt": f"{SECLISTS_PATH}/Discovery/Web-Content/common.txt",
+                "/usr/share/wordlists/dirb/big.txt": f"{SECLISTS_PATH}/Discovery/Web-Content/big.txt",
+                "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt": f"{SECLISTS_PATH}/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt",
+                "/usr/share/wordlists/dirbuster/directory-list-2.3-small.txt": f"{SECLISTS_PATH}/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-small.txt",
+            }
+            mapped = legacy_map.get(name_or_path)
+            if mapped and os.path.exists(mapped):
+                return mapped
+        except Exception:
+            pass
+
     # 2. If it exists as a path, return it
     if os.path.exists(name_or_path):
         return name_or_path
@@ -252,8 +278,12 @@ def suggest_wordlist(task: str) -> List[Dict]:
         if category in keywords:
             if any(kw in task for kw in keywords[category]):
                 suggestions.append({**wl_data, "name": wl_name})
+
+    if suggestions:
+        suggestions.sort(key=lambda x: int(x.get("priority", 1000)))
+        return suggestions
     
     return suggestions if suggestions else [
         {**WORDLISTS["common"], "name": "common"},
-        {**WORDLISTS["dir_medium"], "name": "dir_medium"}
+        {**WORDLISTS["big"], "name": "big"}
     ]

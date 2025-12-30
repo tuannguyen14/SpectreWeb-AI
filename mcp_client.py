@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI MCP Client v5.1.1 - Consolidated Tools
+SpectreWeb AI MCP Client v5.3.1 - Consolidated Tools
 Phantom Recon Engine - AI-Powered Web Penetration Testing
 
 Changes from v3.0:
@@ -78,6 +78,11 @@ class SpectreClient:
         result = {"success": False, "output": "", "data": {}}
         data["stream"] = True
         
+        # Limit logging to prevent memory/IO issues with large outputs
+        max_log_lines = 50
+        log_count = 0
+        suppressed_count = 0
+        
         try:
             with self.session.post(f"{self.server_url}/{endpoint}", json=data, timeout=self.timeout, stream=True) as resp:
                 resp.raise_for_status()
@@ -89,9 +94,13 @@ class SpectreClient:
                         msg_data = msg.get("data")
                         
                         if msg_type == "stdout":
-                            # Only log if it's not a progress bar update or empty
+                            # Only log first N lines to prevent flooding
                             if msg_data and msg_data.strip():
-                                logger.info(f"  {msg_data.rstrip()}")
+                                if log_count < max_log_lines:
+                                    logger.info(f"  {msg_data.rstrip()}")
+                                    log_count += 1
+                                else:
+                                    suppressed_count += 1
                         elif msg_type == "stderr":
                              if msg_data and msg_data.strip():
                                 logger.warning(f"  {msg_data.rstrip()}")
@@ -103,10 +112,42 @@ class SpectreClient:
                             
                     except json.JSONDecodeError:
                         pass
+            
+            # Log summary if output was suppressed
+            if suppressed_count > 0:
+                logger.info(f"  ... ({suppressed_count} more lines suppressed)")
                         
             return result
         except Exception as e:
             return {"error": str(e), "success": False}
+
+
+def _truncate_result(result: Dict, max_lines: int = 500) -> Dict:
+    """Truncate result output to prevent large output causing AI agent to hang"""
+    if not result or not isinstance(result, dict):
+        return result
+    
+    # Truncate output field
+    output = result.get("output", "") or ""
+    if output:
+        lines = output.split("\n")
+        total_lines = len(lines)
+        if total_lines > max_lines:
+            result["output"] = "\n".join(lines[:max_lines])
+            result["output_truncated"] = True
+            result["output_total"] = total_lines
+    
+    # Truncate data.urls if present
+    data = result.get("data", {})
+    if data and isinstance(data, dict):
+        urls = data.get("urls", [])
+        if isinstance(urls, list) and len(urls) > max_lines:
+            data["urls"] = urls[:max_lines]
+            data["urls_truncated"] = True
+            data["urls_total"] = len(urls)
+            result["data"] = data
+    
+    return result
 
 
 def setup_mcp_server(client: SpectreClient) -> FastMCP:
@@ -149,8 +190,9 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
     
     @mcp.tool()
     def subfinder_scan(domain: str, additional_args: str = "-silent") -> Dict[str, Any]:
-        """Subfinder subdomain discovery."""
-        return client.post("api/tools/subfinder", {"domain": domain, "additional_args": additional_args})
+        """Subfinder subdomain discovery. Output capped at 500 subdomains."""
+        result = client.post("api/tools/subfinder", {"domain": domain, "additional_args": additional_args})
+        return _truncate_result(result, 500)
     
     @mcp.tool()
     def httpx_probe(target: str, additional_args: str = "-sc -title -td") -> Dict[str, Any]:
@@ -163,26 +205,29 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         return client.post("api/tools/whatweb", {"url": url, "additional_args": additional_args})
     
     @mcp.tool()
-    def ffuf_scan(url: str, wordlist: str = "", match_codes: str = "200,301,302,403", headers: dict = None, additional_args: str = "") -> Dict[str, Any]:
+    def ffuf_scan(url: str, wordlist: str = "common", match_codes: str = "200,301,302,403", headers: dict = None, additional_args: str = "", allow_large_wordlist: bool = False) -> Dict[str, Any]:
         """
         FFuf web fuzzing for directory/file discovery.
         
         Args:
             url: Target URL (use FUZZ keyword)
-            wordlist: Path to wordlist
+            wordlist: Path or alias (common, big, dir_small, etc). Default: 'common' (fast).
             match_codes: Comma-separated status codes to match
             headers: Dict of headers to include (safer than additional_args)
             additional_args: Raw arguments (use carefully)
+            allow_large_wordlist: Allow using large wordlists like dir_medium/dir_big (defaults to False)
         """
         return client.post("api/tools/ffuf", {
             "url": url, "wordlist": wordlist, "match_codes": match_codes, 
-            "headers": headers, "additional_args": additional_args
+            "headers": headers, "additional_args": additional_args,
+            "allow_large_wordlist": bool(allow_large_wordlist)
         })
     
     @mcp.tool()
     def katana_crawl(url: str, depth: int = 2, js_crawl: bool = True, additional_args: str = "") -> Dict[str, Any]:
-        """Katana web crawler - finds endpoints and JS files."""
-        return client.post("api/tools/katana", {"url": url, "depth": depth, "js_crawl": js_crawl, "additional_args": additional_args})
+        """Katana web crawler - finds endpoints and JS files. Output capped at 500 URLs."""
+        result = client.post("api/tools/katana", {"url": url, "depth": depth, "js_crawl": js_crawl, "additional_args": additional_args})
+        return _truncate_result(result, 500)
     
     @mcp.tool()
     def historical_urls(domain: str, source: str = "all", limit: int = 0) -> Dict[str, Any]:
@@ -191,26 +236,38 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         
         Args:
             source: 'wayback', 'gau', 'all'
-            limit: Max URLs to return (0 = unlimited)
+            limit: Max URLs to return (0 = unlimited, but output is capped at 500 for AI)
         """
+        max_output_urls = 500  # Prevent large output causing AI agent to hang
+        
         if source == "wayback":
-            return client.stream_tool("api/tools/waybackurls", {"domain": domain, "limit": limit}, "waybackurls")
+            result = client.stream_tool("api/tools/waybackurls", {"domain": domain, "limit": limit}, "waybackurls")
+            return _truncate_result(result, max_output_urls)
         elif source == "gau":
-            return client.stream_tool("api/tools/gau", {"domain": domain, "limit": limit}, "gau")
+            result = client.stream_tool("api/tools/gau", {"domain": domain, "limit": limit}, "gau")
+            return _truncate_result(result, max_output_urls)
         else:
             # Get from both
             wayback = client.stream_tool("api/tools/waybackurls", {"domain": domain, "limit": limit // 2 if limit else 0}, "waybackurls")
             gau = client.stream_tool("api/tools/gau", {"domain": domain, "limit": limit // 2 if limit else 0}, "gau")
             
+            # Truncate each result
+            wayback = _truncate_result(wayback, max_output_urls // 2)
+            gau = _truncate_result(gau, max_output_urls // 2)
+            
             # Combine outputs safely
             wayback_out = wayback.get("output", "") or ""
             gau_out = gau.get("output", "") or ""
+            
+            wayback_total = wayback.get("output_total", len(wayback_out.split("\n")))
+            gau_total = gau.get("output_total", len(gau_out.split("\n")))
             
             return {
                 "success": True,
                 "wayback": wayback,
                 "gau": gau,
-                "combined_count": len(wayback_out.split("\n")) + len(gau_out.split("\n"))
+                "combined_count": wayback_total + gau_total,
+                "note": f"Output truncated to {max_output_urls} URLs max. Use limit parameter for specific counts."
             }
     
     # ==================== VULN TESTING (3 unified tools) ====================
@@ -567,12 +624,12 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
     
     @mcp.tool()
     def get_wordlist(name: str) -> Dict[str, Any]:
-        """Get wordlist by name (dir_medium, sqli, xss, lfi, api_endpoints, etc)."""
+        """Get wordlist by name (common, big, dir_small, dir_medium, sqli, xss, lfi, api_endpoints, etc)."""
         return client.get(f"api/wordlists/{name}")
     
     @mcp.tool()
     def suggest_wordlist(task: str) -> Dict[str, Any]:
-        """Suggest wordlists for a task description."""
+        """Suggest wordlists for a task description. Prefers smaller/faster lists (common/big) before large ones (dir_medium)."""
         return client.post("api/wordlists/suggest", {"task": task})
     
     # ==================== ENCODING (1 unified tool) ====================
@@ -1089,7 +1146,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v5.1.1 - Consolidated")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v5.3.1 - Consolidated")
     parser.add_argument("--server", default=DEFAULT_SERVER)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -1097,7 +1154,7 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
     
-    logger.info("👻 Starting SpectreWeb MCP v5.1.1 - Self-Learning AI (67 tools)")
+    logger.info("👻 Starting SpectreWeb MCP v5.3.1 - Self-Learning AI (67 tools)")
     
     try:
         client = SpectreClient(args.server)

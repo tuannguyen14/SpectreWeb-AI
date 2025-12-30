@@ -395,12 +395,18 @@ def register_routes(app):
         if "FUZZ" not in url:
             url = url.rstrip("/") + "/FUZZ"
 
+        # Prefer smaller wordlists by default. Large lists must be explicitly allowed.
+        allow_large_wordlist = bool(p.get("allow_large_wordlist", False))
+        requested_wordlist = p.get("wordlist", "common")
+        if (not allow_large_wordlist) and requested_wordlist in {"dir_medium", "dir_big"}:
+            requested_wordlist = "big"
+
         headers = p.get("headers")
         if isinstance(headers, str):
             headers = [headers]
 
         options = {
-            "wordlist": p.get("wordlist", "common"),
+            "wordlist": requested_wordlist,
             "match_codes": p.get("match_codes", "200,301,302,403"),
             "headers": headers,
             "additional_args": p.get("additional_args", ""),
