@@ -6,9 +6,16 @@ import logging
 import sys
 import re
 import os
-import pty
-import select
-import errno
+
+# Conditional imports for PTY (not available on Windows)
+try:
+    import pty
+    import select
+    import errno
+    HAS_PTY = True
+except ImportError:
+    HAS_PTY = False
+
 from datetime import datetime
 from typing import Dict, Any
 
@@ -315,8 +322,8 @@ class CommandExecutor:
             )
             logger.info(f"\n{header}")
             
-            # Use PTY for true unbuffered output (works with Go binaries)
-            if self.stdout_callback or self.stderr_callback:
+            # Use PTY for true unbuffered output (works with Go binaries) if available
+            if (self.stdout_callback or self.stderr_callback) and HAS_PTY:
                 return self._execute_with_pty()
             
             self.process = subprocess.Popen(
