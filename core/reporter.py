@@ -128,7 +128,7 @@ class SpectreReport:
                         finding = Finding(**f_data)
                         self.findings.append(finding)
                         self._finding_fingerprints.add(self._fingerprint_finding(finding))
-            except:
+            except (json.JSONDecodeError, TypeError, KeyError, OSError):
                 pass
 
     def _fingerprint_finding(self, finding: Finding) -> str:

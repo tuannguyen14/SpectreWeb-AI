@@ -226,7 +226,7 @@ def test_graphql_endpoint(url: str, headers: dict = None) -> Dict[str, Any]:
             types = body.get("data", {}).get("__schema", {}).get("types", [])
             user_types = [t for t in types if t.get("kind") == "OBJECT" and not t.get("name", "").startswith("__")]
             results["schema_types"] = [t.get("name") for t in user_types[:20]]
-        except:
+        except (KeyError, TypeError, ValueError):
             pass
     else:
         results["introspection"] = False

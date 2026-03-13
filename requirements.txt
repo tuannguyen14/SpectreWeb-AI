@@ -1,90 +1,47 @@
-# Spectreweb AI MCP Agents v6.0
+# SpectreWeb AI v6.0.0 - Requirements
 #
-# INSTALLATION COMMANDS:
-# python3 -m venv spectreweb_env
-# source spectreweb_env/bin/activate
-# python3 -m pip install -r requirements.txt
-# python3 spectreweb_server.py
+# INSTALLATION:
+#   python3 -m venv venv && source venv/bin/activate
+#   pip install -r requirements.txt
+#   python3 server.py
 
 # ============================================================================
-# CORE FRAMEWORK DEPENDENCIES (ACTUALLY USED)
+# CORE FRAMEWORK
 # ============================================================================
-flask>=2.3.0             # Web framework for API server (flask import)
-requests>=2.31.0         # HTTP library (requests import)
-psutil>=5.9.0            # System utilities (psutil import)
-fastmcp>=0.2.0           # MCP framework (from mcp.server.fastmcp import FastMCP)
+flask>=2.3.0             # Web framework for API server
+requests>=2.31.0         # HTTP client
+psutil>=5.9.0            # System/process utilities
+fastmcp>=0.2.0           # MCP framework (FastMCP server)
 
 # ============================================================================
-# WEB SCRAPING & AUTOMATION (ACTUALLY USED)
+# WEB SCRAPING & PARSING
 # ============================================================================
-beautifulsoup4>=4.12.0  # HTML parsing (from bs4 import BeautifulSoup)
-selenium>=4.15.0         # Browser automation (selenium imports)
-webdriver-manager>=4.0.0 # ChromeDriver management (referenced in code)
+beautifulsoup4>=4.12.0   # HTML parsing (bs4)
 
 # ============================================================================
-# ASYNC & NETWORKING (ACTUALLY USED)
+# MACHINE LEARNING (Self-Learning AI)
 # ============================================================================
-aiohttp>=3.8.0           # Async HTTP (aiohttp import)
+numpy>=1.24.0            # Numerical computing
+scikit-learn>=1.3.0      # ML models for secret classification & endpoint scoring
 
 # ============================================================================
-# MACHINE LEARNING (SELF-LEARNING AI - v5.3.1)
+# OPTIONAL DEPENDENCIES (uncomment if needed)
 # ============================================================================
-numpy>=1.24.0            # Numerical computing (numpy import)
-scikit-learn>=1.3.0     # ML models (sklearn imports)
+# aiohttp>=3.8.0         # Async HTTP (only if using async features)
+# selenium>=4.15.0       # Browser automation (only if using browser agent)
+# webdriver-manager>=4.0.0  # ChromeDriver management (only with selenium)
+# mitmproxy>=9.0.0       # HTTP proxy interception (only for proxy features)
+# pwntools>=4.10.0       # Binary exploitation (only for CTF/binary analysis)
+# angr>=9.2.0            # Binary analysis (only for reverse engineering)
 
 # ============================================================================
-# PROXY & TESTING (ACTUALLY USED)
+# EXTERNAL SECURITY TOOLS (Install separately via OS package manager)
 # ============================================================================
-mitmproxy>=9.0.0        # HTTP proxy (mitmproxy imports)
-
-# ============================================================================
-# BINARY ANALYSIS (CONDITIONALLY USED)
-# ============================================================================
-pwntools>=4.10.0        # Binary exploitation (from pwn import *)
-angr>=9.2.0             # Binary analysis (import angr)
-bcrypt==4.0.1           # Pin bcrypt version for passlib compatibility (fixes pwntools dependency issue)
-
-# ============================================================================
-# EXTERNAL SECURITY TOOLS (150+ Tools - Install separately)
-# ============================================================================
+# SpectreWeb integrates with external CLI tools that must be installed
+# separately. Kali Linux includes most by default.
 #
-# Spectreweb v6.0 integrates with 150+ external security tools that must be
-# installed separately from their official sources:
+# Required for core features:
+#   nmap, ffuf, subfinder, httpx, katana, whatweb, sqlmap, dalfox,
+#   naabu, gau, waybackurls, arjun
 #
-# 🔍 Network & Reconnaissance (25+ tools):
-# - nmap, masscan, rustscan, autorecon, amass, subfinder, fierce
-# - dnsenum, theharvester, responder, netexec, enum4linux-ng
-#
-# 🌐 Web Application Security (40+ tools):
-# - gobuster, feroxbuster, ffuf, dirb, dirsearch, nuclei, nikto
-# - sqlmap, wpscan, arjun, paramspider, x8, katana, httpx
-# - dalfox, jaeles, hakrawler, gau, waybackurls, wafw00f
-#
-# 🔐 Authentication & Password (12+ tools):
-# - hydra, john, hashcat, medusa, patator, netexec
-# - evil-winrm, hash-identifier, ophcrack
-#
-# 🔬 Binary Analysis & Reverse Engineering (25+ tools):
-# - ghidra, radare2, gdb, binwalk, ropgadget, checksec, strings
-# - volatility3, foremost, steghide, exiftool, angr, pwntools
-#
-# ☁️ Cloud & Container Security (20+ tools):
-# - prowler, scout-suite, trivy, kube-hunter, kube-bench
-# - docker-bench-security, checkov, terrascan, falco
-#
-# 🏆 CTF & Forensics (20+ tools):
-# - volatility3, autopsy, sleuthkit, stegsolve, zsteg, outguess
-# - photorec, testdisk, scalpel, bulk-extractor
-#
-# 🕵️ OSINT & Intelligence (20+ tools):
-# - sherlock, social-analyzer, recon-ng, maltego, spiderfoot
-# - shodan-cli, censys-cli, have-i-been-pwned
-#
-# Installation Notes:
-# 1. Kali Linux 2024.1+ includes most tools by default
-# 2. Ubuntu/Debian users should install tools from official repositories
-# 3. Some tools require compilation from source or additional setup
-# 4. Cloud tools require API keys and authentication configuration
-# 5. Browser Agent requires Chrome/Chromium and ChromeDriver installation
-#
-# For complete installation instructions and setup guides, see README.md
+# See README.md for full installation guide.

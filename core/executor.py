@@ -104,7 +104,7 @@ class CommandExecutor:
                     # Beautiful output with line numbers
                     line_num = colorize(f"[{self.lines_received:4d}]", Colors.GRAY)
                     logger.info(f"  {line_num} {line.rstrip()}")
-        except:
+        except (OSError, ValueError):
             pass
 
     def _read_stderr(self):
@@ -118,7 +118,7 @@ class CommandExecutor:
                         
                     err_prefix = colorize("ERR", Colors.RED, bold=True)
                     logger.warning(f"  [{err_prefix}] {line.rstrip()}")
-        except:
+        except (OSError, ValueError):
             pass
 
     def _show_progress(self):
@@ -299,7 +299,7 @@ class CommandExecutor:
         except Exception as e:
             try:
                 os.close(master_fd)
-            except:
+            except OSError:
                 pass
             error_box = create_box("💥 ERROR", [str(e)], Colors.RED)
             logger.error(f"\n{error_box}")

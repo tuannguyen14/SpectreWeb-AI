@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI - Phantom Recon Engine v5.3.1
+SpectreWeb AI - Phantom Recon Engine v6.0.0
 AI-Powered Web Penetration Testing with Smart Reporting
 
 Usage:
@@ -9,6 +9,7 @@ Usage:
 
 import os
 import sys
+import signal
 from pathlib import Path
 import argparse
 import logging
@@ -55,7 +56,7 @@ register_routes(app)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI Server v5.3.1")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI Server v6.0.0")
     parser.add_argument("--host", default=API_HOST, help="Host to bind")
     parser.add_argument("--port", type=int, default=API_PORT, help="Port to bind")
     parser.add_argument("--debug", action="store_true", help="Debug mode")
@@ -72,10 +73,17 @@ def main():
     )
     
     print(create_banner())
-    logger.info(f"👻 Starting SpectreWeb AI v5.3.1 on {args.host}:{args.port}")
+    logger.info(f"👻 Starting SpectreWeb AI v6.0.0 on {args.host}:{args.port}")
     
     if not args.debug:
         logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    
+    def _shutdown_handler(signum, frame):
+        logger.info("🛑 Shutdown signal received, exiting gracefully...")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, _shutdown_handler)
+    signal.signal(signal.SIGTERM, _shutdown_handler)
     
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True)
 

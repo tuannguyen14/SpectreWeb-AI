@@ -4,7 +4,6 @@ import re
 import shlex
 import time
 import urllib.parse
-import concurrent.futures
 from flask import request, jsonify, Response, stream_with_context
 import queue
 import threading
@@ -770,50 +769,6 @@ def register_routes(app):
             "vulnerable": any(r["interesting"] for r in results)
         })
     
-    @app.route("/api/test/race", methods=["POST"])
-    def test_race():
-        """Race condition testing - send multiple concurrent requests"""
-        import concurrent.futures
-        
-        p = _json()
-        url = p.get("url", "")
-        method = p.get("method", "GET")
-        data = p.get("data")
-        headers = p.get("headers", {})
-        count = min(p.get("count", 10), 50)  # Max 50 concurrent
-        
-        if not url:
-            return jsonify({"error": "URL required"}), 400
-        
-        def make_single_request(_):
-            return make_request(url, method, headers, data)
-        
-        results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=count) as executor:
-            futures = [executor.submit(make_single_request, i) for i in range(count)]
-            for f in concurrent.futures.as_completed(futures):
-                r = f.result()
-                results.append({
-                    "status": r.get("status_code"),
-                    "length": r.get("body_length"),
-                    "time": r.get("elapsed")
-                })
-        
-        # Analyze
-        statuses = [r["status"] for r in results]
-        lengths = [r["length"] for r in results]
-        
-        return jsonify({
-            "success": True,
-            "total_requests": count,
-            "results": results,
-            "analysis": {
-                "unique_statuses": list(set(statuses)),
-                "unique_lengths": list(set(lengths)),
-                "possible_race": len(set(lengths)) > 1 or len(set(statuses)) > 1
-            }
-        })
-    
     # ==========================
     # FILES
     # ==========================
@@ -1490,18 +1445,6 @@ def register_routes(app):
             "type": vuln_type,
             "payloads": payloads,
             "count": len(payloads)
-        })
-    
-    @app.route("/api/manual/waf-bypass", methods=["POST"])
-    def manual_waf_bypass():
-        """Generate WAF bypass variations for a payload"""
-        payload = _json().get("payload", "")
-        bypasses = generate_waf_bypass_payloads(payload)
-        return jsonify({
-            "success": True,
-            "original": payload,
-            "bypasses": bypasses,
-            "count": len(bypasses)
         })
     
     @app.route("/api/manual/rate-limit", methods=["POST"])

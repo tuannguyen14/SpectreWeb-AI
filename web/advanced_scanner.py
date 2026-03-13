@@ -160,7 +160,7 @@ def get_cname(domain: str) -> Optional[str]:
         answers = dns.resolver.resolve(domain, 'CNAME')
         for rdata in answers:
             return str(rdata.target).rstrip('.')
-    except:
+    except Exception:
         pass
     return None
 
@@ -186,7 +186,7 @@ def check_subdomain_takeover(subdomain: str) -> Dict[str, Any]:
     try:
         cname = get_cname(subdomain)
         result["cname"] = cname
-    except:
+    except Exception:
         cname = None
     
     # Check for NXDOMAIN (domain doesn't resolve)
@@ -234,7 +234,7 @@ def check_subdomain_takeover(subdomain: str) -> Dict[str, Any]:
                     return result
             
             break  # Success, no need to try http if https worked
-        except:
+        except (requests.RequestException, OSError, Exception):
             continue
     
     return result

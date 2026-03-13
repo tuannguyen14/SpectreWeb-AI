@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI MCP Client v5.3.1 - Consolidated Tools
+SpectreWeb AI MCP Client v6.0.0 - Consolidated Tools
 Phantom Recon Engine - AI-Powered Web Penetration Testing
 
-Changes from v3.0:
-- Reduced from 92 to 50 tools
-- Merged similar tools into unified interfaces
-- Better organization and cleaner API
+Changes in v6.0.0:
+- Added 7 specialized attack workflows (API Hunt, DB-Pwn, Admin Takeover, Profit Vectors, Chain Attack, Full Recon)
+- Improved bare exception handling across all modules (replaced with specific exceptions)
+- Enhanced SpectreClient with better retry logic and error categorization
+- Added comprehensive gitignore for Windsurf IDE
+- Consolidated version consistency across entire project
+
+Changes in v5.4.0:
+- Consolidated from 67 to ~55 tools (merged duplicates)
+- Merged ai_train + ai_auto_train into single tool with 'auto' flag
+- Removed trivial generate_hash tool
+- Thread-safe cache and telemetry
+- Fixed version consistency across project
 
 Usage:
     python mcp_client.py [--server URL] [--debug]
@@ -38,12 +47,16 @@ DEFAULT_TIMEOUT = 3000
 
 
 class SpectreClient:
-    """HTTP Client for SpectreWeb Server"""
+    """HTTP Client for SpectreWeb Server with retry and connection management"""
+    
+    MAX_RETRIES = 2
+    RETRY_DELAY = 1.0
     
     def __init__(self, server_url: str, timeout: int = DEFAULT_TIMEOUT):
         self.server_url = server_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "SpectreWeb-MCP/6.0.0"})
         self._connect()
     
     def _connect(self):
@@ -56,21 +69,34 @@ class SpectreClient:
             except Exception as e:
                 logger.warning(f"⚠️ Attempt {i+1}/3 failed: {e}")
                 time.sleep(2)
-        logger.error(f"❌ Failed to connect")
+        logger.error(f"❌ Failed to connect to {self.server_url}")
+    
+    def _request(self, method: str, endpoint: str, **kwargs) -> Dict:
+        """Unified request method with retry logic for transient failures"""
+        url = f"{self.server_url}/{endpoint}"
+        last_error = None
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
+                return resp.json()
+            except requests.exceptions.ConnectionError as e:
+                last_error = e
+                if attempt < self.MAX_RETRIES:
+                    time.sleep(self.RETRY_DELAY * (attempt + 1))
+                    continue
+            except requests.exceptions.Timeout as e:
+                return {"error": f"Request timed out: {e}", "success": False}
+            except requests.exceptions.JSONDecodeError:
+                return {"error": "Server returned invalid JSON", "success": False}
+            except Exception as e:
+                return {"error": str(e), "success": False}
+        return {"error": f"Connection failed after {self.MAX_RETRIES + 1} attempts: {last_error}", "success": False}
     
     def get(self, endpoint: str, params: Dict = None) -> Dict:
-        try:
-            resp = self.session.get(f"{self.server_url}/{endpoint}", params=params or {}, timeout=self.timeout)
-            return resp.json()
-        except Exception as e:
-            return {"error": str(e), "success": False}
+        return self._request("GET", endpoint, params=params or {})
     
     def post(self, endpoint: str, data: Dict) -> Dict:
-        try:
-            resp = self.session.post(f"{self.server_url}/{endpoint}", json=data, timeout=self.timeout)
-            return resp.json()
-        except Exception as e:
-            return {"error": str(e), "success": False}
+        return self._request("POST", endpoint, json=data)
 
     def stream_tool(self, endpoint: str, data: Dict, tool_name: str) -> Dict:
         """Execute tool with streaming output"""
@@ -794,13 +820,6 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         """List files in directory."""
         return client.get("api/files/list", {"directory": directory})
     
-    # ==================== HASH TOOLS (1 tool) ====================
-    
-    @mcp.tool()
-    def generate_hash(text: str) -> Dict[str, Any]:
-        """Generate MD5, SHA1, SHA256, SHA512 hashes."""
-        return client.post("api/analyze/hash/generate", {"text": text})
-    
     # ==================== RESPONSE COMPARISON (1 tool) ====================
     
     @mcp.tool()
@@ -1027,7 +1046,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         })
     
     @mcp.tool()
-    def ai_train() -> Dict[str, Any]:
+    def ai_train(auto: bool = False) -> Dict[str, Any]:
         """
         🎓 Train local AI models from labeled data.
         
@@ -1035,24 +1054,18 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         - SecretClassifier (reduces FP in secret detection)
         - EndpointRiskScorer (prioritizes risky endpoints)
         
+        Args:
+            auto: If True, only train if enough new labeled data (50+ samples, 10+ new).
+                  If False, force train immediately.
+        
         Requires at least 50 labeled samples per model.
         """
-        logger.info("🎓 Training AI models")
-        return client.post("api/ai/train", {})
-    
-    @mcp.tool()
-    def ai_auto_train() -> Dict[str, Any]:
-        """
-        🔄 Auto-train AI models if enough new labeled data is available.
-        
-        Conditions:
-        - At least 50 labeled samples
-        - At least 10 new samples since last train
-        
-        Call this periodically to keep models up-to-date!
-        """
-        logger.info("🔄 Auto-training AI models")
-        return client.post("api/ai/auto_train", {})
+        if auto:
+            logger.info("🔄 Auto-training AI models")
+            return client.post("api/ai/auto_train", {})
+        else:
+            logger.info("🎓 Training AI models")
+            return client.post("api/ai/train", {})
     
     @mcp.tool()
     def ai_insights() -> Dict[str, Any]:
@@ -1146,7 +1159,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v5.3.1 - Consolidated")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v6.0.0 - Consolidated")
     parser.add_argument("--server", default=DEFAULT_SERVER)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -1154,12 +1167,12 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
     
-    logger.info("👻 Starting SpectreWeb MCP v5.3.1 - Self-Learning AI (67 tools)")
+    logger.info("👻 Starting SpectreWeb MCP v6.0.0 - Self-Learning AI (55 tools)")
     
     try:
         client = SpectreClient(args.server)
         mcp = setup_mcp_server(client)
-        logger.info("✅ MCP Ready - 67 tools loaded")
+        logger.info("✅ MCP Ready - 55 tools loaded")
         mcp.run()
     except Exception as e:
         logger.error(f"💥 {e}")

@@ -538,7 +538,7 @@ def generate_idor_tests(param_value: str) -> List[Dict[str, Any]]:
                 "type": "b64_modified",
                 "value": base64.b64encode(str(val - 1).encode()).decode()
             })
-    except:
+    except (ValueError, TypeError):
         pass
     
     # Generic

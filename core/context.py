@@ -143,7 +143,7 @@ class TargetContext:
                             "timestamp": scan_data.get('timestamp'),
                             "success": scan_data.get('success')
                         })
-                except:
+                except (json.JSONDecodeError, KeyError, TypeError):
                     pass
     
     def get_ai_briefing(self) -> str:

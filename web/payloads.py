@@ -74,7 +74,7 @@ def identify_hash(hash_str: str) -> Dict[str, Any]:
                 "decoded_length": len(decoded),
                 "possible_types": HASH_PATTERNS.get(len(decoded.hex()), ["Unknown"])
             }
-        except:
+        except (ValueError, UnicodeDecodeError):
             return {"success": False, "error": "Not a valid hash or base64"}
     
     length = len(hash_str)
@@ -247,5 +247,5 @@ def decode_payload(payload: str, encoding: str) -> str:
             "html": lambda p: html.unescape(p),
         }
         return decodings.get(encoding, lambda p: p)(payload)
-    except:
+    except (ValueError, UnicodeDecodeError, Exception):
         return payload

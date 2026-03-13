@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI - Smart Output Formatter v5.3.1
+SpectreWeb AI - Smart Output Formatter v6.0.0
 Beautiful real-time output with colors, tables, and progress bars
 """
 
@@ -85,7 +85,7 @@ class SpectreFormatter:
         ██║███╗██║██╔══╝  ██╔══██╗
         ╚███╔███╔╝███████╗██████╔╝
          ╚══╝╚══╝ ╚══════╝╚═════╝ {Color.RESET}
-{Color.GRAY}     👻 Phantom Recon Engine v5.3.1{Color.RESET}
+{Color.GRAY}     👻 Phantom Recon Engine v6.0.0{Color.RESET}
 """
 
     BOX_CHARS = {
@@ -339,7 +339,7 @@ class SpectreFormatter:
         if isinstance(data, str):
             try:
                 data = json.loads(data)
-            except:
+            except (json.JSONDecodeError, TypeError, ValueError):
                 return data
         
         json_str = json.dumps(data, indent=indent, ensure_ascii=False)
