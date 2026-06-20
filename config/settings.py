@@ -29,10 +29,10 @@ FILE_MANAGER_BASE_DIR = os.environ.get("SPECTREWEB_FILE_BASE_DIR", os.path.join(
 # The generated key is printed to stdout and logged.
 # Set SPECTREWEB_API_KEY="" to explicitly disable auth (NOT recommended).
 _api_key_env = os.environ.get("SPECTREWEB_API_KEY")
-if _api_key_env is not None:
-    API_KEY = _api_key_env if _api_key_env != "" else None
+if _api_key_env is not None and _api_key_env != "":
+    API_KEY = _api_key_env
 else:
-    API_KEY = _secrets.token_hex(32)
+    API_KEY = None  # Auth disabled by default
 
 # Allow raw shell command execution via /api/command (DANGEROUS)
 # Must be explicitly enabled via environment variable.
