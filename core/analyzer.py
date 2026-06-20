@@ -461,10 +461,14 @@ class SmartAnalyzer:
     
     def generate_executive_summary(self) -> str:
         """Generate an executive summary of all findings"""
-        total = len(self.findings)
-        critical = sum(1 for f in self.findings if f.get("severity") == "critical")
-        high = sum(1 for f in self.findings if f.get("severity") == "high")
-        medium = sum(1 for f in self.findings if f.get("severity") == "medium")
+        with self._lock:
+            findings_copy = list(self.findings)
+            techs_copy = list(self.technologies)
+        
+        total = len(findings_copy)
+        critical = sum(1 for f in findings_copy if f.get("severity") == "critical")
+        high = sum(1 for f in findings_copy if f.get("severity") == "high")
+        medium = sum(1 for f in findings_copy if f.get("severity") == "medium")
         
         if critical > 0:
             risk_level = "CRITICAL"
@@ -486,13 +490,13 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 - Critical: {critical}
 - High: {high}
 - Medium: {medium}
-- Technologies: {', '.join(self.technologies) or 'None detected'}
+- Technologies: {', '.join(techs_copy) or 'None detected'}
 
 ## Top Priorities
 """
         # Add top 5 findings
         sorted_findings = sorted(
-            self.findings,
+            findings_copy,
             key=lambda x: {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}.get(x.get("severity", "info"), 0),
             reverse=True
         )

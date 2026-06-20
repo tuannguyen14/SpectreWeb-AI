@@ -26,9 +26,27 @@ from .learning_store import (
 from .local_ai import (
     LocalAI, SecretClassifier, EndpointRiskScorer, PayloadRanker,
     get_local_ai, classify_secret, score_endpoint, rank_payloads,
-    ML_AVAILABLE
+    AIResponse, ML_AVAILABLE
 )
 from .ai_orchestrator import (
-    AIOrchestrator, AIRequest, AIResponse, AIBackend, TaskType,
+    AIOrchestrator, AIRequest, AIBackend, TaskType,
     get_orchestrator
 )
+
+__all__ = [
+    "SimpleCache", "CommandExecutor", "execute_command", "FileManager",
+    "Telemetry", "SpectreReport", "Finding", "get_report", "auto_report",
+    "TargetContext", "get_context", "load_target_context", "list_all_targets",
+    "SpectreFormatter", "Color", "fmt", "print_banner", "print_status",
+    "print_finding", "print_scan_header", "print_scan_result", "print_table",
+    "print_ai_insight", "print_recommendations", "print_box", "print_summary",
+    "SmartAnalyzer", "analyzer", "AIInsight", "analyze_response",
+    "detect_technologies", "get_attack_vectors", "classify_endpoint",
+    "analyze_scan", "get_insights", "get_findings", "get_summary",
+    "LearningStore", "LearningFinding", "AttackRecord", "FindingType",
+    "FeedbackLabel", "get_store", "add_secret_finding", "add_endpoint_finding",
+    "record_attack", "LocalAI", "SecretClassifier", "EndpointRiskScorer",
+    "PayloadRanker", "get_local_ai", "classify_secret", "score_endpoint",
+    "rank_payloads", "AIResponse", "ML_AVAILABLE", "AIOrchestrator",
+    "AIRequest", "AIBackend", "TaskType", "get_orchestrator",
+]

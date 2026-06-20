@@ -16,7 +16,7 @@ class SimpleCache:
 
     def _hash_key(self, command: str, params: Dict) -> str:
         key_str = f"{command}:{json.dumps(params, sort_keys=True)}"
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.sha256(key_str.encode()).hexdigest()[:32]
 
     def get(self, command: str, params: Dict = None) -> Optional[Dict]:
         params = params or {}

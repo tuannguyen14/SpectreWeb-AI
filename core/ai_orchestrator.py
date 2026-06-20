@@ -20,12 +20,13 @@ This design ensures:
 
 import json
 import hashlib
+import threading
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass
 from enum import Enum
 
-from .local_ai import get_local_ai, LocalAI, ML_AVAILABLE
+from .local_ai import get_local_ai, LocalAI, ML_AVAILABLE, AIResponse
 from .learning_store import get_store, LearningStore
 
 
@@ -57,27 +58,6 @@ class AIRequest:
     data: Dict[str, Any]
     require_high_confidence: bool = False
     force_backend: Optional[AIBackend] = None
-
-
-@dataclass
-class AIResponse:
-    """Response from the AI system"""
-    success: bool
-    result: Any
-    backend_used: AIBackend
-    confidence: float
-    latency_ms: float
-    error: Optional[str] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "success": self.success,
-            "result": self.result,
-            "backend_used": self.backend_used.value,
-            "confidence": self.confidence,
-            "latency_ms": self.latency_ms,
-            "error": self.error
-        }
 
 
 class AIOrchestrator:
@@ -126,7 +106,8 @@ class AIOrchestrator:
         # Response cache for remote calls
         self.cache: Dict[str, Any] = {}
         self.cache_ttl = 3600  # 1 hour
-        
+        self._cache_lock = threading.Lock()
+
         # Statistics
         self.stats = {
             "local_calls": 0,
@@ -134,6 +115,7 @@ class AIOrchestrator:
             "escalations": 0,
             "cache_hits": 0,
         }
+        self._stats_lock = threading.Lock()
     
     def process(self, request: AIRequest) -> AIResponse:
         """
@@ -172,7 +154,8 @@ class AIOrchestrator:
                 # Escalate if confidence too low
                 if request.require_high_confidence and confidence < self.CONFIDENCE_THRESHOLD:
                     if self.remote_handler:
-                        self.stats["escalations"] += 1
+                        with self._stats_lock:
+                            self.stats["escalations"] += 1
                         result = self._process_remote(request)
                         confidence = 0.9
                         backend = AIBackend.HYBRID
@@ -181,7 +164,7 @@ class AIOrchestrator:
                 return AIResponse(
                     success=False,
                     result=None,
-                    backend_used=AIBackend.LOCAL,
+                    backend_used=AIBackend.LOCAL.value,
                     confidence=0,
                     latency_ms=0,
                     error=f"Unknown task type: {request.task_type}"
@@ -192,7 +175,7 @@ class AIOrchestrator:
             return AIResponse(
                 success=True,
                 result=result,
-                backend_used=backend,
+                backend_used=backend.value,
                 confidence=confidence,
                 latency_ms=round(latency, 2)
             )
@@ -202,7 +185,7 @@ class AIOrchestrator:
             return AIResponse(
                 success=False,
                 result=None,
-                backend_used=AIBackend.LOCAL,
+                backend_used=AIBackend.LOCAL.value,
                 confidence=0,
                 latency_ms=round(latency, 2),
                 error=str(e)
@@ -210,47 +193,49 @@ class AIOrchestrator:
     
     def _process_local(self, request: AIRequest) -> tuple:
         """Process request using local AI"""
-        self.stats["local_calls"] += 1
+        with self._stats_lock:
+            self.stats["local_calls"] += 1
         
         task = request.task_type
         data = request.data
         
         if task == TaskType.CLASSIFY_SECRET:
-            result = self.local_ai.classify_secret(data)
-            return result, result.get("confidence", 0.5)
+            response = self.local_ai.classify_secret(data)
+            return response.result, response.confidence
             
         elif task == TaskType.SCORE_ENDPOINT:
-            result = self.local_ai.score_endpoint(data)
-            return result, result.get("confidence", 0.5)
+            response = self.local_ai.score_endpoint(data)
+            return response.result, response.confidence
             
         elif task == TaskType.RANK_PAYLOADS:
             payloads = data.get("payloads", [])
             context = data.get("context", {})
-            result = self.local_ai.rank_payloads(payloads, context)
-            return result, 0.7
+            response = self.local_ai.rank_payloads(payloads, context)
+            return response.result, response.confidence
             
         elif task == TaskType.TRIAGE_FINDING:
             # Combine secret and endpoint scoring
-            result = {}
             if data.get("type") == "secret":
-                result = self.local_ai.classify_secret(data)
+                response = self.local_ai.classify_secret(data)
             else:
-                result = self.local_ai.score_endpoint(data)
-            return result, result.get("confidence", 0.5)
+                response = self.local_ai.score_endpoint(data)
+            return response.result, response.confidence
             
         else:
             return {"error": "Task not supported locally"}, 0.0
     
     def _process_remote(self, request: AIRequest) -> Dict[str, Any]:
         """Process request using remote AI"""
-        self.stats["remote_calls"] += 1
+        with self._stats_lock:
+            self.stats["remote_calls"] += 1
         
         # Check cache
         cache_key = self._get_cache_key(request)
-        if cache_key in self.cache:
-            cached = self.cache[cache_key]
-            if cached.get("expires_at", 0) > datetime.now().timestamp():
-                self.stats["cache_hits"] += 1
+        with self._cache_lock:
+            cached = self.cache.get(cache_key)
+            if cached and cached.get("expires_at", 0) > datetime.now().timestamp():
+                with self._stats_lock:
+                    self.stats["cache_hits"] += 1
                 return cached.get("result")
         
         # Call remote handler
@@ -263,19 +248,20 @@ class AIOrchestrator:
         result = self.remote_handler(request.task_type.value, request.data)
         
         # Cache result
-        self.cache[cache_key] = {
-            "result": result,
-            "expires_at": datetime.now().timestamp() + self.cache_ttl
-        }
+        with self._cache_lock:
+            self.cache[cache_key] = {
+                "result": result,
+                "expires_at": datetime.now().timestamp() + self.cache_ttl
+            }
         
         return result
     
     def _get_cache_key(self, request: AIRequest) -> str:
         """Generate cache key for request"""
         data_str = json.dumps(request.data, sort_keys=True)
-        return hashlib.md5(
+        return hashlib.sha256(
             f"{request.task_type.value}:{data_str}".encode()
-        ).hexdigest()
+        ).hexdigest()[:32]
     
     # =========================================================================
     # CONVENIENCE METHODS
@@ -427,11 +413,13 @@ class AIOrchestrator:
     
     def get_status(self) -> Dict[str, Any]:
         """Get orchestrator status"""
+        with self._cache_lock:
+            cache_size = len(self.cache)
         return {
             "local_ai": self.local_ai.get_status(),
             "remote_configured": self.remote_handler is not None,
             "stats": self.stats,
-            "cache_size": len(self.cache),
+            "cache_size": cache_size,
             "insights": self.get_smart_insights()
         }
     
@@ -445,13 +433,15 @@ class AIOrchestrator:
 # ============================================================================
 
 _orchestrator_instance = None
+_orchestrator_lock = threading.Lock()
 
 def get_orchestrator() -> AIOrchestrator:
     """Get singleton orchestrator instance"""
     global _orchestrator_instance
-    if _orchestrator_instance is None:
-        _orchestrator_instance = AIOrchestrator()
-    return _orchestrator_instance
+    with _orchestrator_lock:
+        if _orchestrator_instance is None:
+            _orchestrator_instance = AIOrchestrator()
+        return _orchestrator_instance
 
 
 def classify_secret(features: Dict[str, Any]) -> Dict[str, Any]:

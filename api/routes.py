@@ -84,7 +84,7 @@ def stream_tool_execution(tool, target, **kwargs):
         
     def worker():
         try:
-            result = tool.run(target, stdout_callback=on_stdout, stderr_callback=on_stderr, **kwargs)
+            result = tool.run(target, timeout=max_runtime, stdout_callback=on_stdout, stderr_callback=on_stderr, **kwargs)
             q.put({"type": "result", "data": result.to_dict()})
         except Exception as e:
             q.put({"type": "error", "data": str(e)})
@@ -99,7 +99,6 @@ def stream_tool_execution(tool, target, **kwargs):
     
     try:
         while True:
-            # Check max runtime
             elapsed = time.time() - start_time
             if elapsed > max_runtime:
                 yield json.dumps({"type": "error", "data": f"Max runtime exceeded ({max_runtime}s)"}) + "\n"
@@ -122,10 +121,15 @@ def stream_tool_execution(tool, target, **kwargs):
     except GeneratorExit:
         pass
     finally:
+        # Wait for worker thread to finish; log if it doesn't (daemon=True means
+        # it won't block process exit, but may continue consuming resources).
         t.join(timeout=5)
         if t.is_alive():
             import logging
-            logging.getLogger(__name__).warning("Stream worker thread still alive after timeout")
+            logging.getLogger(__name__).warning(
+                "Stream worker thread still alive after disconnect — "
+                "tool may continue running in background"
+            )
 
 
 def register_routes(app):
@@ -141,14 +145,42 @@ def register_routes(app):
     
     @app.route("/health", methods=["GET"])
     def health():
+        # Check DB connectivity
+        db_ok = True
+        db_error = None
+        try:
+            store = get_store()
+            store.get_stats()
+        except Exception as e:
+            db_ok = False
+            db_error = str(e)
+
+        # Check disk space for file manager base dir
+        disk_ok = True
+        disk_free_mb = None
+        try:
+            import shutil as _shutil
+            from config.settings import FILE_MANAGER_BASE_DIR
+            usage = _shutil.disk_usage(FILE_MANAGER_BASE_DIR)
+            disk_free_mb = round(usage.free / (1024 * 1024), 1)
+            if disk_free_mb < 100:
+                disk_ok = False
+        except Exception:
+            pass
+
+        all_ok = db_ok and disk_ok
         return jsonify({
-            "status": "healthy",
+            "status": "healthy" if all_ok else "degraded",
             "version": VERSION,
             "cache_stats": cache.get_stats(),
             "telemetry": telemetry.get_stats(),
             "ai_stats": {
                 "findings": len(analyzer.findings),
                 "technologies": analyzer.technologies
+            },
+            "dependencies": {
+                "database": {"ok": db_ok, "error": db_error},
+                "disk": {"ok": disk_ok, "free_mb": disk_free_mb}
             }
         })
     
@@ -158,10 +190,24 @@ def register_routes(app):
     
     @app.route("/api/command", methods=["POST"])
     def command():
+        from config.settings import ALLOW_COMMAND_EXECUTION
+        if not ALLOW_COMMAND_EXECUTION:
+            return jsonify({
+                "error": "Raw command execution is disabled. Set SPECTREWEB_ALLOW_COMMAND=true to enable."
+            }), 403
         params = _json()
         cmd = params.get("command", "")
         if not cmd:
             return jsonify({"error": "Command required"}), 400
+
+        # Block obvious shell injection metacharacters when the command is a simple tool invocation.
+        # This is defense-in-depth; the primary gate is ALLOW_COMMAND_EXECUTION.
+        dangerous_patterns = ["&&", "||", ";", "|", "`", "$(", "${", "\n", "\r"]
+        if any(p in cmd for p in dangerous_patterns):
+            return jsonify({
+                "error": "Command contains forbidden shell metacharacters. Only single commands are allowed."
+            }), 400
+
         result = execute_command(cmd, params.get("use_cache", False))
         telemetry.record("command", result.get("success", False))
         return jsonify(result)
@@ -742,6 +788,10 @@ def register_routes(app):
         url = p.get("url", "")
         param = p.get("param", "")
         
+        # SSRF payloads target internal/infra addresses — these are sent to the
+        # user-supplied URL, not to the internal addresses directly.
+        # The scanner acts as a proxy: it sends the payload as a parameter value
+        # to the target URL, and checks if the target server fetches the internal URL.
         payloads = p.get("payloads") or [
             "http://127.0.0.1",
             "http://localhost",
@@ -1684,12 +1734,35 @@ def register_routes(app):
         if not domain:
             return jsonify({"error": "Domain required"}), 400
         
+        # Validate local_paths against ALLOWED_LOCAL_SCAN_DIRS if provided
+        local_paths = p.get("local_paths")
+        if local_paths:
+            from config.settings import ALLOWED_LOCAL_SCAN_DIRS
+            from pathlib import Path
+            import os as _os
+
+            if isinstance(local_paths, str):
+                local_paths = [local_paths]
+            elif not isinstance(local_paths, (list, tuple)):
+                return jsonify({"error": "local_paths must be a list or string"}), 400
+
+            allowed_resolved = [str(Path(d).resolve()) for d in ALLOWED_LOCAL_SCAN_DIRS]
+            safe_local_paths = []
+            for lp in local_paths:
+                try:
+                    resolved_lp = str(Path(lp).resolve())
+                    if any(resolved_lp == allowed or resolved_lp.startswith(allowed + _os.sep) for allowed in allowed_resolved):
+                        safe_local_paths.append(lp)
+                except Exception:
+                    pass
+            local_paths = safe_local_paths if safe_local_paths else None
+
         result = deep_secret_hunt(
             domain,
             max_urls=p.get("max_urls", 100),
             max_js=p.get("max_js", 50),
             stages=p.get("stages"),
-            local_paths=p.get("local_paths")
+            local_paths=local_paths
         )
         return jsonify(result)
     
@@ -1699,12 +1772,44 @@ def register_routes(app):
         Scan local files/directories for secrets (no network requests).
         
         Input: {paths: ["/path/to/project", "/path/to/file.env"]}
+        Paths must be within ALLOWED_LOCAL_SCAN_DIRS.
         """
+        from config.settings import ALLOWED_LOCAL_SCAN_DIRS
+        from pathlib import Path
+        import os as _os
+
         paths = _json().get("paths", [])
         if not paths:
             return jsonify({"error": "Paths required"}), 400
-        
-        result = scan_local_secrets(paths)
+
+        if isinstance(paths, str):
+            paths = [paths]
+        elif not isinstance(paths, (list, tuple)):
+            return jsonify({"error": "paths must be a list or string"}), 400
+
+        allowed_resolved = [str(Path(d).resolve()) for d in ALLOWED_LOCAL_SCAN_DIRS]
+        safe_paths = []
+        rejected = []
+        for p in paths:
+            try:
+                resolved = str(Path(p).resolve())
+                if any(resolved == allowed or resolved.startswith(allowed + _os.sep) for allowed in allowed_resolved):
+                    safe_paths.append(p)
+                else:
+                    rejected.append({"path": p, "reason": "Outside allowed directories"})
+            except Exception:
+                rejected.append({"path": p, "reason": "Invalid path"})
+
+        if not safe_paths:
+            return jsonify({
+                "error": "No paths within allowed directories",
+                "rejected": rejected,
+                "allowed_dirs": allowed_resolved
+            }), 403
+
+        result = scan_local_secrets(safe_paths)
+        if rejected:
+            result["rejected_paths"] = rejected
         return jsonify(result)
     
     @app.route("/api/secrets/quick", methods=["POST"])
@@ -1750,17 +1855,27 @@ def register_routes(app):
     def ai_classify_secret():
         """Classify a secret as real or false positive using local AI"""
         features = _json()
-        orchestrator = get_orchestrator()
-        response = orchestrator.classify_secret(features)
-        return jsonify(response.to_dict())
+        local_ai = get_local_ai()
+        response = local_ai.classify_secret(features)
+        return jsonify({
+            "success": response.success,
+            "result": response.result,
+            "confidence": response.confidence,
+            "model_used": response.result.get("model_used") if isinstance(response.result, dict) else None
+        })
     
     @app.route("/api/ai/score_endpoint", methods=["POST"])
     def ai_score_endpoint():
         """Score an endpoint's vulnerability risk using local AI"""
         features = _json()
-        orchestrator = get_orchestrator()
-        response = orchestrator.score_endpoint(features)
-        return jsonify(response.to_dict())
+        local_ai = get_local_ai()
+        response = local_ai.score_endpoint(features)
+        return jsonify({
+            "success": response.success,
+            "result": response.result,
+            "confidence": response.confidence,
+            "model_used": response.result.get("model_used") if isinstance(response.result, dict) else None
+        })
     
     @app.route("/api/ai/rank_payloads", methods=["POST"])
     def ai_rank_payloads():
@@ -1769,9 +1884,14 @@ def register_routes(app):
         payloads = data.get("payloads", [])
         context = data.get("context", {})
         
-        orchestrator = get_orchestrator()
-        response = orchestrator.rank_payloads(payloads, context)
-        return jsonify(response.to_dict())
+        local_ai = get_local_ai()
+        response = local_ai.rank_payloads(payloads, context)
+        return jsonify({
+            "success": response.success,
+            "result": response.result,
+            "confidence": response.confidence,
+            "total": len(response.result) if isinstance(response.result, list) else 0
+        })
     
     @app.route("/api/ai/train", methods=["POST"])
     def ai_train():
@@ -1788,7 +1908,11 @@ def register_routes(app):
         finding_type = request.args.get("type")
         target = request.args.get("target")
         label = request.args.get("label")
-        limit = int(request.args.get("limit", 100))
+        try:
+            limit = int(request.args.get("limit", 100))
+        except (ValueError, TypeError):
+            limit = 100
+        limit = max(1, min(limit, 1000))
         
         findings = store.get_findings(
             finding_type=finding_type,
@@ -1831,14 +1955,29 @@ def register_routes(app):
     
     @app.route("/api/learning/export", methods=["POST"])
     def learning_export():
-        """Export learning data to JSON"""
-        output_path = _json().get("path", "/tmp/spectreweb_learning_export.json")
+        """Export learning data to JSON (restricted to FileManager base dir)"""
+        from config.settings import FILE_MANAGER_BASE_DIR
+        from pathlib import Path
+        import os as _os
+
+        output_path = _json().get("path", "learning_export.json")
+        base_dir = str(Path(FILE_MANAGER_BASE_DIR).resolve())
+        
+        try:
+            resolved = str(Path(output_path).resolve())
+            if not (resolved == base_dir or resolved.startswith(base_dir + _os.sep)):
+                return jsonify({
+                    "error": f"Output path must be within {base_dir}"
+                }), 403
+        except Exception:
+            return jsonify({"error": "Invalid path"}), 400
+
         store = get_store()
-        success = store.export_to_json(output_path)
+        success = store.export_to_json(resolved)
         
         return jsonify({
             "success": success,
-            "path": output_path
+            "path": resolved
         })
     
     @app.route("/api/ai/auto_train", methods=["POST"])
@@ -2026,9 +2165,16 @@ def register_routes(app):
         if not target:
             return jsonify({"error": "Target required"}), 400
         
-        # Extract tool-specific options
+        # Extract tool-specific options — only pass known-safe parameter names
         timeout = params.get("timeout", tool.default_timeout)
-        options = {k: v for k, v in params.items() if k not in ("target", "timeout")}
+        # additional_args and stdin are excluded to prevent command injection via tool plugins
+        allowed_opts = {"ports", "scan_type", "wordlist", "method", "depth",
+                        "threads", "follow_redirects", "output_format", "rate_limit",
+                        "proxy", "headers", "cookies", "exclude",
+                        "top_ports", "scan_flags", "tech_detect",
+                        "service_version", "os_detect", "scripts"}
+        options = {k: v for k, v in params.items()
+                   if k not in ("target", "timeout") and k in allowed_opts}
         
         result = tool.run(target, timeout=timeout, **options)
         telemetry.record(name, result.success)
@@ -2051,7 +2197,14 @@ def register_routes(app):
             return jsonify({"error": "Target required"}), 400
         
         timeout = params.get("timeout", tool.default_timeout)
-        options = {k: v for k, v in params.items() if k not in ("target", "timeout")}
+        # additional_args and stdin are excluded to prevent command injection via tool plugins
+        allowed_opts = {"ports", "scan_type", "wordlist", "method", "depth",
+                        "threads", "follow_redirects", "output_format", "rate_limit",
+                        "proxy", "headers", "cookies", "exclude",
+                        "top_ports", "scan_flags", "tech_detect",
+                        "service_version", "os_detect", "scripts"}
+        options = {k: v for k, v in params.items()
+                   if k not in ("target", "timeout") and k in allowed_opts}
         
         def run_tool_job(job, tool_instance, tgt, tout, opts):
             job.add_log(f"Running {tool_instance.name} on {tgt}")

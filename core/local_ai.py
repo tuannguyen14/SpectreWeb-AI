@@ -18,6 +18,7 @@ Uses scikit-learn compatible models with fallback to heuristics.
 import json
 import pickle
 import hashlib
+import threading
 import numpy as np
 from datetime import datetime
 from pathlib import Path
@@ -69,6 +70,29 @@ class ModelInfo:
             "precision": self.precision,
             "recall": self.recall,
             "feature_names": self.feature_names
+        }
+
+
+@dataclass
+class AIResponse:
+    """Standardized response wrapper for local AI predictions"""
+    success: bool
+    result: Any
+    confidence: float
+    error: Optional[str] = None
+    model_used: Optional[str] = None
+    backend_used: Optional[str] = None
+    latency_ms: Optional[float] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "success": self.success,
+            "result": self.result,
+            "confidence": self.confidence,
+            "error": self.error,
+            "model_used": self.model_used,
+            "backend_used": self.backend_used,
+            "latency_ms": self.latency_ms
         }
 
 
@@ -537,28 +561,35 @@ class LocalAI:
         
         print(f"[LocalAI] Initialized with ML_AVAILABLE={ML_AVAILABLE}")
     
-    def classify_secret(self, features: Dict[str, Any]) -> Dict[str, Any]:
+    def classify_secret(self, features: Dict[str, Any]) -> AIResponse:
         """
         Classify a secret as true/false positive.
         
         Returns:
-            {is_real: bool, confidence: float, model_used: str}
+            AIResponse with result dict containing is_real, score, confidence, model_used
         """
         score, confidence = self.secret_classifier.predict(features)
-        
-        return {
+        model_used = "ml" if self.secret_classifier.is_ready() else "heuristic"
+        result = {
             "is_real": score > 0.5,
             "score": score,
             "confidence": confidence,
-            "model_used": "ml" if self.secret_classifier.is_ready() else "heuristic"
+            "model_used": model_used
         }
+        
+        return AIResponse(
+            success=True,
+            result=result,
+            confidence=confidence,
+            model_used=model_used
+        )
     
-    def score_endpoint(self, features: Dict[str, Any]) -> Dict[str, Any]:
+    def score_endpoint(self, features: Dict[str, Any]) -> AIResponse:
         """
         Score an endpoint by vulnerability risk.
         
         Returns:
-            {risk_score: float, confidence: float, priority: str}
+            AIResponse with result dict containing risk_score, priority, model_used
         """
         score, confidence = self.endpoint_scorer.predict(features)
         
@@ -569,20 +600,36 @@ class LocalAI:
         else:
             priority = "low"
         
-        return {
+        model_used = "ml" if self.endpoint_scorer.is_ready() else "heuristic"
+        result = {
             "risk_score": score,
             "confidence": confidence,
             "priority": priority,
-            "model_used": "ml" if self.endpoint_scorer.is_ready() else "heuristic"
+            "model_used": model_used
         }
+        
+        return AIResponse(
+            success=True,
+            result=result,
+            confidence=confidence,
+            model_used=model_used
+        )
     
     def rank_payloads(
         self, 
         payloads: List[Dict], 
         context: Dict[str, Any]
-    ) -> List[Dict]:
+    ) -> AIResponse:
         """Rank payloads by predicted effectiveness"""
-        return self.payload_ranker.rank_payloads(payloads, context)
+        ranked = self.payload_ranker.rank_payloads(payloads, context)
+        confidence = 0.7
+        model_used = "ml" if self.payload_ranker.is_ready() else "heuristic"
+        return AIResponse(
+            success=True,
+            result=ranked,
+            confidence=confidence,
+            model_used=model_used
+        )
     
     def train_all(self, store) -> Dict[str, Any]:
         """
@@ -645,26 +692,31 @@ class LocalAI:
 # ============================================================================
 
 _local_ai_instance = None
+_local_ai_lock = threading.Lock()
 
 def get_local_ai() -> LocalAI:
     """Get singleton LocalAI instance"""
     global _local_ai_instance
-    if _local_ai_instance is None:
-        _local_ai_instance = LocalAI()
-    return _local_ai_instance
+    with _local_ai_lock:
+        if _local_ai_instance is None:
+            _local_ai_instance = LocalAI()
+        return _local_ai_instance
 
 
 # Convenience functions
 def classify_secret(features: Dict[str, Any]) -> Dict[str, Any]:
     """Classify a secret finding"""
-    return get_local_ai().classify_secret(features)
+    response = get_local_ai().classify_secret(features)
+    return response.result if response.success else {"error": response.error or "Prediction failed"}
 
 
 def score_endpoint(features: Dict[str, Any]) -> Dict[str, Any]:
     """Score an endpoint's risk"""
-    return get_local_ai().score_endpoint(features)
+    response = get_local_ai().score_endpoint(features)
+    return response.result if response.success else {"error": response.error or "Prediction failed"}
 
 
 def rank_payloads(payloads: List[Dict], context: Dict[str, Any]) -> List[Dict]:
     """Rank payloads by effectiveness"""
-    return get_local_ai().rank_payloads(payloads, context)
+    response = get_local_ai().rank_payloads(payloads, context)
+    return response.result if response.success else []

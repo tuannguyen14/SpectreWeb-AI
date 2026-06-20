@@ -19,7 +19,7 @@ import concurrent.futures
 import time
 import threading
 from typing import Dict, Any, List, Optional, Tuple
-from urllib.parse import urlparse, urljoin, quote, parse_qs
+from urllib.parse import urlparse, urljoin, quote, unquote, parse_qs
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -361,6 +361,7 @@ def test_open_redirect(url: str, param: str = "", payloads: List[str] = None) ->
     findings = []
     parsed = urlparse(url)
     base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    existing_query = parsed.query
     
     # Use fewer payloads for speed
     test_payloads = payloads[:8] if len(params_to_test) > 5 else payloads[:10]
@@ -383,16 +384,20 @@ def test_open_redirect(url: str, param: str = "", payloads: List[str] = None) ->
                 sys.stdout.flush()
             
             test_url = f"{base_url}?{test_param}={quote(payload, safe='')}"
+            if existing_query:
+                test_url += f"&{existing_query}"
             
             try:
                 resp = make_request(test_url, follow_redirects=False, timeout=15)
                 status = resp.get("status_code", 0)
                 location = resp.get("headers", {}).get("Location", "")
+                location_decoded = unquote(location)
                 
                 # Check for redirect
                 if status in [301, 302, 303, 307, 308]:
-                    # Check if redirects to our payload
-                    if "evil.com" in location or payload in location:
+                    # Check if the redirect target contains the payload (decoded or raw)
+                    payload_indicators = [payload, unquote(payload), quote(payload, safe='')]
+                    if any(ind in location or ind in location_decoded for ind in payload_indicators):
                         findings.append({
                             "param": test_param,
                             "payload": payload,
@@ -417,7 +422,9 @@ def test_open_redirect(url: str, param: str = "", payloads: List[str] = None) ->
                 
                 # Check for meta refresh or JS redirect in body
                 body = resp.get("body", "").lower()
-                if "evil.com" in body or (payload.lower() in body and "redirect" in body):
+                payload_lower = payload.lower()
+                payload_decoded = unquote(payload).lower()
+                if payload_decoded in body or (payload_lower in body and "redirect" in body):
                     findings.append({
                         "param": test_param,
                         "payload": payload,
@@ -450,18 +457,14 @@ def test_open_redirect(url: str, param: str = "", payloads: List[str] = None) ->
 # ============================================================================
 
 CRLF_PAYLOADS = [
-    "%0d%0aX-Injected: header",
-    "%0d%0a%0d%0a<script>alert(1)</script>",
-    "%0aX-Injected: header",
-    "%0dX-Injected: header",
-    "%23%0d%0aX-Injected: header",
-    "%5cr%5cnX-Injected: header",
-    "%E5%98%8A%E5%98%8DX-Injected: header",  # UTF-8
     "\r\nX-Injected: header",
     "\r\n\r\n<script>alert(1)</script>",
-    "%%0d0a%0d%0aX-Injected: header",
-    "%0d%0aContent-Length: 0%0d%0a%0d%0a",
-    "%0d%0aSet-Cookie: injected=true",
+    "\nX-Injected: header",
+    "\rX-Injected: header",
+    "#\r\nX-Injected: header",
+    "\r\nContent-Length: 0\r\n\r\n",
+    "\r\nSet-Cookie: injected=true",
+    "\r\nLocation: https://evil.com",
 ]
 
 
@@ -474,6 +477,7 @@ def test_crlf_injection(url: str, param: str = "") -> Dict[str, Any]:
     findings = []
     parsed = urlparse(url)
     base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    existing_query = parsed.query
     
     # Use fewer payloads for speed
     test_payloads = CRLF_PAYLOADS[:8]
@@ -498,7 +502,9 @@ def test_crlf_injection(url: str, param: str = "") -> Dict[str, Any]:
                 print(f"[PROGRESS] CRLF: {current_test}/{total_tests} ({progress:.1f}%) - ETA: {eta:.1f}s")
                 sys.stdout.flush()
             
-            test_url = f"{base_url}?{param}={payload}"
+            test_url = f"{base_url}?{param}={quote(payload, safe='')}"
+            if existing_query:
+                test_url += f"&{existing_query}"
             
             try:
                 resp = make_request(test_url, timeout=15)
@@ -546,7 +552,9 @@ def test_crlf_injection(url: str, param: str = "") -> Dict[str, Any]:
                     print(f"[PROGRESS] CRLF: {current_test}/{total_tests} ({progress:.1f}%) - ETA: {eta:.1f}s")
                     sys.stdout.flush()
                 
-                test_url = f"{base_url}?{test_param}={payload}"
+                test_url = f"{base_url}?{test_param}={quote(payload, safe='')}"
+                if existing_query:
+                    test_url += f"&{existing_query}"
                 
                 try:
                     resp = make_request(test_url, timeout=15)

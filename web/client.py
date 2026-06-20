@@ -4,7 +4,11 @@ from typing import Dict, Any, Optional
 import requests
 import urllib3
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from config.settings import TLS_VERIFY
+
+# Only suppress warnings if TLS verification is intentionally disabled
+if not TLS_VERIFY:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Import from centralized config to avoid duplication
 from config.settings import DEFAULT_HEADERS
@@ -100,7 +104,7 @@ def make_request(url: str, method: str = "GET", headers: Dict = None,
                 cookies=cookies or {},
                 allow_redirects=follow_redirects,
                 timeout=timeout,
-                verify=False,
+                verify=TLS_VERIFY,
                 proxies=proxies
             )
             elapsed = time.time() - start

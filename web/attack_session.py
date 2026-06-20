@@ -17,7 +17,7 @@ import re
 import json
 import time
 import threading
-import hashlib
+import secrets
 from typing import Dict, Any, List, Optional, Tuple, Callable
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -388,7 +388,7 @@ class AttackSession:
     
     def __init__(self, target_url: str, auth_headers: Dict = None, cookies: Dict = None):
         self.target_url = target_url
-        self.session_id = hashlib.md5(f"{target_url}{time.time()}".encode()).hexdigest()[:12]
+        self.session_id = secrets.token_hex(8)  # 16-char hex string, cryptographically secure
         self.state = SessionState(
             session_id=self.session_id,
             target=target_url,

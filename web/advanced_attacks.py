@@ -24,7 +24,13 @@ except ImportError:
 
 
 def _b64_decode_jwt_part(part: str) -> dict:
-    """Decode a JWT part with proper base64 padding."""
+    """
+    Decode a JWT part with proper base64 padding.
+    
+    NOTE: This function does NOT verify the JWT signature. It is intentionally
+    designed for attack/forge purposes (e.g., jwt_none_attack, jwt_claim_injection).
+    Do NOT use this function to validate tokens in production code.
+    """
     padding = -len(part) % 4
     part += "=" * padding
     return json.loads(base64.urlsafe_b64decode(part).decode())

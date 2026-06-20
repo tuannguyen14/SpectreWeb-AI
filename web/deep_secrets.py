@@ -447,6 +447,7 @@ class DeepSecretHunter:
         """
         import os
         import glob
+        from config.settings import MAX_FILE_SIZE
         
         self._log(f"Stage 1: Scanning {len(paths)} local paths for secrets...")
         self.report.stages_completed.append("static")
@@ -486,8 +487,8 @@ class DeepSecretHunter:
         
         for file_path in files_to_scan:
             try:
-                # Skip large files (> 1MB)
-                if os.path.getsize(file_path) > 1_000_000:
+                # Skip large files (> MAX_FILE_SIZE)
+                if os.path.getsize(file_path) > MAX_FILE_SIZE:
                     continue
                 
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -802,12 +803,14 @@ class DeepSecretHunter:
             risk = calculate_risk(secret_type, category, confidence, context)
             hints = get_exploitation_hints(category, secret_type)
             
+            masked_value = value[:4] + "..." + value[-4:] if len(value) > 8 else "***"
+            
             enriched = EnrichedSecret(
                 secret_id=f"secret_{len(self.secrets_by_hash)+1}",
                 category=category,
                 risk=risk,
                 secret_type=secret_type,
-                value_masked=value,
+                value_masked=masked_value,
                 value_hash=value_hash,
                 source=source,
                 source_type=source_type,

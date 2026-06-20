@@ -6,8 +6,10 @@ Maintains intelligent directory structure for multiple targets.
 """
 
 import os
+import re
 import json
 import hashlib
+import logging
 import threading
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -15,8 +17,9 @@ import glob
 from urllib.parse import urlparse
 
 from core.url_utils import extract_domain, extract_root_domain
+from config.settings import MAX_FILE_SIZE, FILE_MANAGER_BASE_DIR
 
-REPORTS_BASE_DIR = "/tmp/spectreweb/targets"
+REPORTS_BASE_DIR = os.path.join(FILE_MANAGER_BASE_DIR, "targets")
 
 class TargetContext:
     """
@@ -44,6 +47,7 @@ class TargetContext:
         self.domain = self._extract_domain(target)
         self.subdomain = self._extract_subdomain(target)
         self.base_dir = os.path.join(REPORTS_BASE_DIR, self.domain)
+        self._lock = threading.RLock()
         
         # Initialize directory structure
         self._init_directories()
@@ -60,8 +64,14 @@ class TargetContext:
         self._load_context()
     
     def _extract_domain(self, target: str) -> str:
-        """Extract root domain from target"""
-        return extract_root_domain(target) or target
+        """Extract root domain from target, sanitized for filesystem use"""
+        domain = extract_root_domain(target) or target
+        # Sanitize: remove path separators and traversal sequences (e.g., ../ and ..)
+        domain = re.sub(r'[\\/]+', '', domain)
+        domain = re.sub(r'\.\.+', '', domain)
+        domain = re.sub(r'[\x00-\x1f]', '', domain)
+        domain = domain.strip('.')
+        return domain if domain else "unknown"
     
     def _extract_subdomain(self, target: str) -> Optional[str]:
         """Extract subdomain if present"""
@@ -89,8 +99,11 @@ class TargetContext:
         """Load or create domain metadata"""
         meta_path = os.path.join(self.base_dir, "_meta.json")
         if os.path.exists(meta_path):
-            with open(meta_path, 'r') as f:
-                return json.load(f)
+            try:
+                with open(meta_path, 'r') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                logging.warning(f"Corrupted _meta.json for {self.domain}: {e}. Creating new meta.")
         
         meta = {
             "domain": self.domain,
@@ -105,8 +118,9 @@ class TargetContext:
     def _save_meta(self, meta: Dict = None):
         """Save domain metadata"""
         meta_path = os.path.join(self.base_dir, "_meta.json")
-        with open(meta_path, 'w') as f:
-            json.dump(meta or self.meta, f, indent=2)
+        with self._lock:
+            with open(meta_path, 'w') as f:
+                json.dump(meta or self.meta, f, indent=2)
     
     def _load_context(self):
         """Load all existing context for this domain"""
@@ -296,23 +310,40 @@ class TargetContext:
             "result": result
         }
         
-        with open(filepath, 'w') as f:
-            json.dump(scan_data, f, indent=2)
+        try:
+            serialized = json.dumps(scan_data, indent=2)
+            if len(serialized) > MAX_FILE_SIZE:
+                scan_data["result"] = {"error": "Result too large, truncated", "truncated": True}
+                serialized = json.dumps(scan_data, indent=2)
+            with open(filepath, 'w') as f:
+                f.write(serialized)
+        except (TypeError, ValueError) as e:
+            with open(filepath, 'w') as f:
+                json.dump({"tool": tool, "error": str(e)}, f, indent=2)
         
-        # Update meta
-        self.meta['last_scan'] = datetime.now().isoformat()
-        self.meta['total_scans'] = self.meta.get('total_scans', 0) + 1
-        self._save_meta()
+        with self._lock:
+            self.meta['last_scan'] = datetime.now().isoformat()
+            self.meta['total_scans'] = self.meta.get('total_scans', 0) + 1
+            self._save_meta()
         
         return filepath
     
+    def _sanitize_name(self, name: str) -> str:
+        """Sanitize a name for safe filesystem use"""
+        name = re.sub(r'[\\/]+', '', name)
+        name = re.sub(r'\.\.+', '', name)
+        name = name.strip('.')
+        return name if name else "unknown"
+
     def add_subdomain(self, subdomain: str):
         """Add a subdomain and create its directory"""
-        if subdomain not in self.known_subdomains:
-            self.known_subdomains.append(subdomain)
-            # Create subdomain directory
-            sub_dir = os.path.join(self.base_dir, "subdomains", subdomain)
-            os.makedirs(sub_dir, exist_ok=True)
+        subdomain = self._sanitize_name(subdomain)
+        with self._lock:
+            if subdomain not in self.known_subdomains:
+                self.known_subdomains.append(subdomain)
+                # Create subdomain directory
+                sub_dir = os.path.join(self.base_dir, "subdomains", subdomain)
+                os.makedirs(sub_dir, exist_ok=True)
     
     def add_subdomains(self, subdomains: List[str]):
         """Add multiple subdomains"""
@@ -324,26 +355,37 @@ class TargetContext:
         effective_target = target or report_data.get("target") or report_data.get("url") or self.original_target
         subdomain = self._extract_subdomain(effective_target) if effective_target else None
 
-        if subdomain:
-            # Save to subdomain directory
-            sub_dir = os.path.join(self.base_dir, "subdomains", f"{subdomain}.{self.domain}")
-            os.makedirs(sub_dir, exist_ok=True)
-            report_path = os.path.join(sub_dir, "_report.json")
-        else:
-            report_path = os.path.join(self.base_dir, "_report.json")
-        
-        with open(report_path, 'w') as f:
-            json.dump(report_data, f, indent=2)
+        with self._lock:
+            if subdomain:
+                # Save to subdomain directory
+                subdomain = self._sanitize_name(subdomain)
+                sub_dir = os.path.join(self.base_dir, "subdomains", f"{subdomain}.{self.domain}")
+                os.makedirs(sub_dir, exist_ok=True)
+                report_path = os.path.join(sub_dir, "_report.json")
+            else:
+                report_path = os.path.join(self.base_dir, "_report.json")
+            
+            try:
+                serialized = json.dumps(report_data, indent=2)
+                if len(serialized) > MAX_FILE_SIZE:
+                    report_data = {"error": "Report too large, truncated", "truncated": True}
+                    serialized = json.dumps(report_data, indent=2)
+                with open(report_path, 'w') as f:
+                    f.write(serialized)
+            except (TypeError, ValueError) as e:
+                with open(report_path, 'w') as f:
+                    json.dump({"error": str(e)}, f, indent=2)
     
     def add_note(self, note: str):
         """Add note to session notes"""
         notes_file = os.path.join(self.base_dir, "notes", "session_notes.md")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
         
-        with open(notes_file, 'a') as f:
-            f.write(f"\n## [{timestamp}]\n{note}\n")
-        
-        self.previous_notes.append(f"[{timestamp}] {note}")
+        with self._lock:
+            with open(notes_file, 'a') as f:
+                f.write(f"\n## [{timestamp}]\n{note}\n")
+            
+            self.previous_notes.append(f"[{timestamp}] {note}")
 
 
 # Global context cache

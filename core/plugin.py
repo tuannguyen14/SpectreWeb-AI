@@ -303,13 +303,16 @@ class BaseTool(ABC):
     ) -> ToolResult:
         """
         Execute with realtime streaming output (logs each line as it arrives).
+        
+        Security: cmd_str is built from shlex.quote on each argument, preventing
+        shell injection. stdin_data is also shlex.quote'd before being piped.
         """
         from .executor import CommandExecutor
         
-        # CommandExecutor expects a shell command string
-        # For stdin-fed tools, we need to pipe the input
+        # CommandExecutor expects a shell command string.
+        # cmd_str was built with shlex.quote on each element, so it's safe
+        # to pass to shell=True. For stdin-fed tools, we pipe via echo.
         if stdin_data:
-            # Use echo to pipe stdin data to the command
             escaped_stdin = shlex.quote(stdin_data.rstrip('\n'))
             shell_cmd = f"echo {escaped_stdin} | {cmd_str}"
         else:

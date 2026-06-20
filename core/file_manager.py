@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 from typing import Dict, Any
 
+from config.settings import MAX_FILE_SIZE
+
 class FileManager:
     def __init__(self, base_dir: str = "/tmp/spectreweb"):
         self.base_dir = Path(base_dir)
@@ -24,9 +26,14 @@ class FileManager:
         try:
             filepath = self._resolve_safe_path(filename)
             filepath.parent.mkdir(parents=True, exist_ok=True)
+
+            data = content.encode() if binary and isinstance(content, str) else content
+            if isinstance(data, (str, bytes)) and len(data) > MAX_FILE_SIZE:
+                return {"success": False, "error": f"File exceeds max size ({MAX_FILE_SIZE} bytes)"}
+
             mode = 'wb' if binary else 'w'
             with open(filepath, mode) as f:
-                f.write(content.encode() if binary and isinstance(content, str) else content)
+                f.write(data)
             return {"success": True, "path": str(filepath), "size": filepath.stat().st_size}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -34,6 +41,8 @@ class FileManager:
     def read_file(self, filename: str) -> Dict:
         try:
             filepath = self._resolve_safe_path(filename)
+            if filepath.stat().st_size > MAX_FILE_SIZE:
+                return {"success": False, "error": f"File exceeds max size ({MAX_FILE_SIZE} bytes)"}
             with open(filepath, 'r') as f:
                 content = f.read()
             return {"success": True, "content": content, "size": len(content)}

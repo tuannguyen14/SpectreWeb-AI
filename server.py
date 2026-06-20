@@ -10,6 +10,7 @@ Usage:
 import os
 import sys
 import signal
+import atexit
 from pathlib import Path
 import argparse
 import logging
@@ -47,12 +48,23 @@ logger = logging.getLogger(__name__)
 # Flask App
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max request body
 
 # Setup middleware (request tracking, error handling)
 setup_middleware(app)
 
 # Register routes
 register_routes(app)
+
+# Graceful shutdown for job queue on exit
+def _shutdown_job_queue():
+    try:
+        from core.job_queue import get_job_queue
+        get_job_queue().shutdown(wait=False)
+    except Exception:
+        pass
+
+atexit.register(_shutdown_job_queue)
 
 
 def main():
@@ -74,6 +86,17 @@ def main():
     
     print(create_banner())
     logger.info(f"👻 Starting SpectreWeb AI v6.0.0 on {args.host}:{args.port}")
+
+    # Display API key at startup for operator convenience
+    from config.settings import API_KEY, ALLOW_COMMAND_EXECUTION
+    if API_KEY:
+        masked = f"{API_KEY[:8]}...{API_KEY[-4:]}" if len(API_KEY) > 12 else "***"
+        print(f"\n  🔑 API Key: {masked}")
+        print(f"     Send as header: X-API-Key: <your-key>\n")
+    else:
+        logger.warning("⚠️  API authentication is DISABLED. Set SPECTREWEB_API_KEY to secure the server.")
+    if ALLOW_COMMAND_EXECUTION:
+        logger.warning("⚠️  Raw command execution is ENABLED via /api/command. This is dangerous.")
     
     if not args.debug:
         logging.getLogger('werkzeug').setLevel(logging.WARNING)

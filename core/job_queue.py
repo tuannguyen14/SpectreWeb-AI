@@ -163,14 +163,17 @@ class JobQueue:
         
         # Submit to executor
         future = self._executor.submit(self._run_job, job, func, args, kwargs)
-        self._futures[job_id] = future
+        
+        with self._lock:
+            self._futures[job_id] = future
         
         return job_id
     
     def _run_job(self, job: Job, func: Callable, args: tuple, kwargs: dict):
         """Execute job and handle result/errors"""
-        job.status = JobStatus.RUNNING
-        job.started_at = time.time()
+        with job._lock:
+            job.status = JobStatus.RUNNING
+            job.started_at = time.time()
         job.add_log(f"Job started: {job.name}")
         
         try:
@@ -178,19 +181,23 @@ class JobQueue:
             result = func(job, *args, **kwargs)
             
             if job.is_cancelled():
-                job.status = JobStatus.CANCELLED
+                with job._lock:
+                    job.status = JobStatus.CANCELLED
                 job.add_log("Job cancelled")
             else:
-                job.status = JobStatus.COMPLETED
-                job.result = result
-                job.progress = job.total_steps
+                with job._lock:
+                    job.status = JobStatus.COMPLETED
+                    job.result = result
+                    job.progress = job.total_steps
                 job.add_log("Job completed successfully")
         except Exception as e:
-            job.status = JobStatus.FAILED
-            job.error = str(e)
+            with job._lock:
+                job.status = JobStatus.FAILED
+                job.error = str(e)
             job.add_log(f"Job failed: {e}")
         finally:
-            job.completed_at = time.time()
+            with job._lock:
+                job.completed_at = time.time()
     
     def get_status(self, job_id: str) -> Optional[Dict]:
         """Get job status"""
@@ -248,11 +255,13 @@ class JobQueue:
             return
         
         # Get completed/failed jobs sorted by completed_at
-        removable = [
-            (job_id, job) for job_id, job in self._jobs.items()
-            if job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
-        ]
-        removable.sort(key=lambda x: x[1].completed_at or 0)
+        removable = []
+        for job_id, job in self._jobs.items():
+            if job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+                with job._lock:
+                    completed_at = job.completed_at
+                removable.append((job_id, completed_at or 0))
+        removable.sort(key=lambda x: x[1])
         
         # Remove oldest 10%
         to_remove = max(1, len(removable) // 10)

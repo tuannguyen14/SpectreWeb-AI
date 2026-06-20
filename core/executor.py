@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 from .cache import cache
+from config.settings import MAX_OUTPUT_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,13 @@ class CommandExecutor:
         try:
             for line in iter(self.process.stdout.readline, ''):
                 if line:
+                    if len(self.stdout_data) >= MAX_OUTPUT_SIZE:
+                        logger.warning(f"  Output exceeded MAX_OUTPUT_SIZE ({MAX_OUTPUT_SIZE} bytes), truncating")
+                        try:
+                            self.process.kill()
+                        except Exception:
+                            pass
+                        break
                     self.stdout_data += line
                     self.bytes_received += len(line)
                     self.lines_received += 1
@@ -111,6 +119,13 @@ class CommandExecutor:
         try:
             for line in iter(self.process.stderr.readline, ''):
                 if line:
+                    if len(self.stderr_data) >= MAX_OUTPUT_SIZE:
+                        logger.warning(f"  Stderr exceeded MAX_OUTPUT_SIZE ({MAX_OUTPUT_SIZE} bytes), truncating")
+                        try:
+                            self.process.kill()
+                        except Exception:
+                            pass
+                        break
                     self.stderr_data += line
                     
                     if self.stderr_callback:
@@ -242,6 +257,13 @@ class CommandExecutor:
                         # Process line by line for callbacks and logging
                         for line in text.splitlines():
                             if line.strip():
+                                if len(self.stdout_data) >= MAX_OUTPUT_SIZE:
+                                    logger.warning(f"  Output exceeded MAX_OUTPUT_SIZE ({MAX_OUTPUT_SIZE} bytes), truncating")
+                                    try:
+                                        self.process.kill()
+                                    except Exception:
+                                        pass
+                                    break
                                 self.lines_received += 1
                                 self.bytes_received += len(line)
                                 self.stdout_data += line + "\n"

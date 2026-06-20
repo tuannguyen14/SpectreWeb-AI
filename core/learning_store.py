@@ -219,6 +219,7 @@ class LearningStore:
     def add_finding(self, finding: Finding) -> bool:
         """Add a new finding to the store"""
         with self.lock:
+            conn = None
             try:
                 conn = self._get_conn()
                 cursor = conn.cursor()
@@ -248,24 +249,30 @@ class LearningStore:
                 ))
                 
                 conn.commit()
-                conn.close()
                 return True
             except Exception as e:
                 print(f"[LearningStore] Error adding finding: {e}")
                 return False
+            finally:
+                if conn:
+                    conn.close()
     
     def get_finding(self, finding_id: str) -> Optional[Finding]:
         """Get a finding by ID"""
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
-        row = cursor.fetchone()
-        conn.close()
-        
-        if row:
-            return self._row_to_finding(row)
-        return None
+        conn = None
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                return self._row_to_finding(row)
+            return None
+        finally:
+            if conn:
+                conn.close()
     
     def label_finding(
         self, 
@@ -275,6 +282,7 @@ class LearningStore:
     ) -> bool:
         """Label a finding (true positive, false positive, etc.)"""
         with self.lock:
+            conn = None
             try:
                 conn = self._get_conn()
                 cursor = conn.cursor()
@@ -299,11 +307,13 @@ class LearningStore:
                 """, (finding_id, old_label, label, notes))
                 
                 conn.commit()
-                conn.close()
                 return True
             except Exception as e:
                 print(f"[LearningStore] Error labeling finding: {e}")
                 return False
+            finally:
+                if conn:
+                    conn.close()
     
     def get_findings(
         self,
@@ -313,29 +323,34 @@ class LearningStore:
         limit: int = 1000
     ) -> List[Finding]:
         """Query findings with filters"""
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        
-        query = "SELECT * FROM findings WHERE 1=1"
-        params = []
-        
-        if finding_type:
-            query += " AND finding_type = ?"
-            params.append(finding_type)
-        if target:
-            query += " AND target LIKE ?"
-            params.append(f"%{target}%")
-        if label:
-            query += " AND label = ?"
-            params.append(label)
-        
-        query += f" ORDER BY timestamp DESC LIMIT {limit}"
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
-        
-        return [self._row_to_finding(row) for row in rows]
+        conn = None
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            query = "SELECT * FROM findings WHERE 1=1"
+            params = []
+            
+            if finding_type:
+                query += " AND finding_type = ?"
+                params.append(finding_type)
+            if target:
+                query += " AND target LIKE ?"
+                params.append(f"%{target}%")
+            if label:
+                query += " AND label = ?"
+                params.append(label)
+            
+            query += " ORDER BY timestamp DESC LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            return [self._row_to_finding(row) for row in rows]
+        finally:
+            if conn:
+                conn.close()
     
     def _row_to_finding(self, row) -> Finding:
         """Convert database row to Finding object"""
@@ -364,6 +379,7 @@ class LearningStore:
     def add_attack_record(self, record: AttackRecord) -> bool:
         """Add an attack record for learning payload effectiveness"""
         with self.lock:
+            conn = None
             try:
                 conn = self._get_conn()
                 cursor = conn.cursor()
@@ -395,11 +411,13 @@ class LearningStore:
                 ))
                 
                 conn.commit()
-                conn.close()
                 return True
             except Exception as e:
                 print(f"[LearningStore] Error adding attack record: {e}")
                 return False
+            finally:
+                if conn:
+                    conn.close()
     
     def get_attack_records(
         self,
@@ -408,25 +426,30 @@ class LearningStore:
         limit: int = 1000
     ) -> List[Dict[str, Any]]:
         """Query attack records"""
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        
-        query = "SELECT * FROM attack_records WHERE 1=1"
-        params = []
-        
-        if attack_type:
-            query += " AND attack_type = ?"
-            params.append(attack_type)
-        if interesting_only:
-            query += " AND interesting = 1"
-        
-        query += f" ORDER BY timestamp DESC LIMIT {limit}"
-        
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
-        
-        return [dict(row) for row in rows]
+        conn = None
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            query = "SELECT * FROM attack_records WHERE 1=1"
+            params = []
+            
+            if attack_type:
+                query += " AND attack_type = ?"
+                params.append(attack_type)
+            if interesting_only:
+                query += " AND interesting = 1"
+            
+            query += " ORDER BY timestamp DESC LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            return [dict(row) for row in rows]
+        finally:
+            if conn:
+                conn.close()
     
     # =========================================================================
     # TRAINING DATA EXPORT
@@ -465,31 +488,34 @@ class LearningStore:
             features: List of feature dicts
             labels: List of labels (1 = had vulnerability, 0 = clean)
         """
-        # Get endpoints that had interesting findings
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        
-        # Get all endpoint findings with their attack results
-        cursor.execute("""
-            SELECT f.*, 
-                   (SELECT COUNT(*) FROM attack_records a 
-                    WHERE a.target_url LIKE '%' || f.target || '%' AND a.interesting = 1) as vuln_count
-            FROM findings f
-            WHERE f.finding_type = 'endpoint'
-        """)
-        
-        rows = cursor.fetchall()
-        conn.close()
-        
-        features = []
-        labels = []
-        
-        for row in rows:
-            f_data = json.loads(row["features"]) if row["features"] else {}
-            features.append(f_data)
-            labels.append(1 if row["vuln_count"] > 0 else 0)
-        
-        return features, labels
+        conn = None
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            # Get all endpoint findings with their attack results
+            cursor.execute("""
+                SELECT f.*, 
+                       (SELECT COUNT(*) FROM attack_records a 
+                        WHERE a.target_url LIKE '%' || f.target || '%' AND a.interesting = 1) as vuln_count
+                FROM findings f
+                WHERE f.finding_type = 'endpoint'
+            """)
+            
+            rows = cursor.fetchall()
+            
+            features = []
+            labels = []
+            
+            for row in rows:
+                f_data = json.loads(row["features"]) if row["features"] else {}
+                features.append(f_data)
+                labels.append(1 if row["vuln_count"] > 0 else 0)
+            
+            return features, labels
+        finally:
+            if conn:
+                conn.close()
     
     def get_training_data_payloads(self) -> List[Dict[str, Any]]:
         """
@@ -520,36 +546,40 @@ class LearningStore:
     
     def get_stats(self) -> Dict[str, Any]:
         """Get learning store statistics"""
-        conn = self._get_conn()
-        cursor = conn.cursor()
-        
-        stats = {}
-        
-        # Findings stats
-        cursor.execute("SELECT COUNT(*) FROM findings")
-        stats["total_findings"] = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT finding_type, COUNT(*) FROM findings GROUP BY finding_type")
-        stats["findings_by_type"] = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        cursor.execute("SELECT label, COUNT(*) FROM findings WHERE label IS NOT NULL GROUP BY label")
-        stats["labeled_findings"] = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        # Attack stats
-        cursor.execute("SELECT COUNT(*) FROM attack_records")
-        stats["total_attacks"] = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(*) FROM attack_records WHERE interesting = 1")
-        stats["interesting_attacks"] = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT attack_type, COUNT(*), SUM(interesting) FROM attack_records GROUP BY attack_type")
-        stats["attacks_by_type"] = {
-            row[0]: {"total": row[1], "interesting": row[2] or 0} 
-            for row in cursor.fetchall()
-        }
-        
-        conn.close()
-        return stats
+        conn = None
+        try:
+            conn = self._get_conn()
+            cursor = conn.cursor()
+            
+            stats = {}
+            
+            # Findings stats
+            cursor.execute("SELECT COUNT(*) FROM findings")
+            stats["total_findings"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT finding_type, COUNT(*) FROM findings GROUP BY finding_type")
+            stats["findings_by_type"] = {row[0]: row[1] for row in cursor.fetchall()}
+            
+            cursor.execute("SELECT label, COUNT(*) FROM findings WHERE label IS NOT NULL GROUP BY label")
+            stats["labeled_findings"] = {row[0]: row[1] for row in cursor.fetchall()}
+            
+            # Attack stats
+            cursor.execute("SELECT COUNT(*) FROM attack_records")
+            stats["total_attacks"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM attack_records WHERE interesting = 1")
+            stats["interesting_attacks"] = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT attack_type, COUNT(*), SUM(interesting) FROM attack_records GROUP BY attack_type")
+            stats["attacks_by_type"] = {
+                row[0]: {"total": row[1], "interesting": row[2] or 0} 
+                for row in cursor.fetchall()
+            }
+            
+            return stats
+        finally:
+            if conn:
+                conn.close()
     
     def export_to_json(self, output_path: str) -> bool:
         """Export all data to JSON for backup/portability"""
@@ -575,13 +605,15 @@ class LearningStore:
 # ============================================================================
 
 _store_instance = None
+_store_lock = threading.Lock()
 
 def get_store() -> LearningStore:
-    """Get singleton store instance"""
+    """Get singleton store instance (thread-safe)"""
     global _store_instance
-    if _store_instance is None:
-        _store_instance = LearningStore()
-    return _store_instance
+    with _store_lock:
+        if _store_instance is None:
+            _store_instance = LearningStore()
+        return _store_instance
 
 
 def add_secret_finding(

@@ -1,13 +1,16 @@
 """
 Flask Middleware for Request Tracking
 
-Provides request ID injection, timing, logging, and error handling.
+Provides request ID injection, timing, logging, error handling,
+API authentication, and per-IP rate limiting.
 """
 
 import uuid
 import time
 import os
 import secrets
+import threading
+from collections import defaultdict, deque
 from functools import wraps
 from flask import Flask, request, g, jsonify
 from typing import Callable, Optional
@@ -19,6 +22,65 @@ from core.response import set_request_id, APIResponse, ErrorCode
 logger = get_logger("middleware")
 
 
+class IPRateLimiter:
+    """Simple per-IP sliding-window rate limiter for API endpoints."""
+
+    def __init__(self, requests_per_minute: int = 60, burst: int = 20):
+        self.window = 60.0  # seconds for RPM limit
+        self.burst_window = 10.0  # seconds for burst limit
+        self.rpm = requests_per_minute
+        self.burst = min(burst, requests_per_minute)
+        self._hits: dict[str, deque] = defaultdict(deque)
+        self._lock = threading.Lock()
+        self._last_cleanup = time.time()
+        self._cleanup_interval = 300.0  # cleanup every 5 minutes
+
+    def check(self, ip: str) -> bool:
+        """Return True if request is allowed, False if rate-limited."""
+        now = time.time()
+        cutoff = now - self.window
+        burst_cutoff = now - self.burst_window
+        with self._lock:
+            # Periodic cleanup of empty deques to prevent unbounded memory growth
+            if now - self._last_cleanup > self._cleanup_interval:
+                empty_keys = [k for k, v in self._hits.items() if not v]
+                for k in empty_keys:
+                    del self._hits[k]
+                self._last_cleanup = now
+
+            dq = self._hits[ip]
+            while dq and dq[0] < cutoff:
+                dq.popleft()
+
+            # Check RPM limit (60-second window)
+            if len(dq) >= self.rpm:
+                return False
+
+            # Check burst limit (short window)
+            recent = sum(1 for t in dq if t >= burst_cutoff)
+            if recent >= self.burst:
+                return False
+
+            dq.append(now)
+            return True
+
+
+_ip_limiter: Optional[IPRateLimiter] = None
+_ip_limiter_lock = threading.Lock()
+
+
+def get_ip_limiter() -> IPRateLimiter:
+    global _ip_limiter
+    with _ip_limiter_lock:
+        if _ip_limiter is None:
+            from config.settings import API_RATE_LIMIT_REQUESTS, API_RATE_LIMIT_BURST
+            _ip_limiter = IPRateLimiter(
+                requests_per_minute=API_RATE_LIMIT_REQUESTS,
+                burst=API_RATE_LIMIT_BURST,
+            )
+        return _ip_limiter
+
+
 def setup_middleware(app: Flask):
     """
     Setup all middleware for the Flask app.
@@ -27,19 +89,23 @@ def setup_middleware(app: Flask):
         app = Flask(__name__)
         setup_middleware(app)
     """
-    
+    from config.settings import API_KEY, API_RATE_LIMIT_ENABLED
+
+    # Log generated API key so the operator can find it
+    if API_KEY:
+        logger.info(f"API authentication enabled. Key: {API_KEY[:8]}...{API_KEY[-4:]}")
+    else:
+        logger.warning("API authentication is DISABLED. Set SPECTREWEB_API_KEY to secure the server.")
+
     @app.before_request
     def before_request():
-        """Inject request ID and start timing"""
-        # Generate or extract request ID
+        """Inject request ID, authenticate, rate-limit, and start timing"""
         request_id = request.headers.get('X-Request-ID') or str(uuid.uuid4())[:12]
         g.request_id = request_id
         g.start_time = time.time()
-        
-        # Set logging context
+
         set_request_id(request_id)
-        
-        # Extract target from request for logging
+
         target = None
         if request.is_json:
             try:
@@ -47,27 +113,38 @@ def setup_middleware(app: Flask):
                 target = data.get('target') or data.get('url') or data.get('domain')
             except Exception:
                 pass
-        
+
         if target:
             set_log_context(request_id=request_id, target=target)
         else:
             set_log_context(request_id=request_id)
 
-        api_key = os.environ.get("SPECTREWEB_API_KEY")
-        if api_key and request.path.startswith("/api/"):
-            provided = request.headers.get("X-API-Key") or ""
-            auth = request.headers.get("Authorization") or ""
-            if auth.lower().startswith("bearer "):
-                provided = auth[7:].strip()
-            if not provided or not secrets.compare_digest(str(provided), str(api_key)):
+        # --- API Authentication (fail-closed) ---
+        if request.path.startswith("/api/"):
+            if API_KEY is not None:
+                provided = request.headers.get("X-API-Key") or ""
+                auth = request.headers.get("Authorization") or ""
+                if auth.lower().startswith("bearer "):
+                    provided = auth[7:].strip()
+                if not provided or not secrets.compare_digest(str(provided), str(API_KEY)):
+                    payload, _ = APIResponse.error(
+                        ErrorCode.INVALID_INPUT,
+                        "Unauthorized",
+                        status_code=401
+                    )
+                    return jsonify(payload), 401
+
+        # --- Per-IP API Rate Limiting ---
+        if API_RATE_LIMIT_ENABLED and request.path.startswith("/api/"):
+            client_ip = request.remote_addr or "unknown"
+            if not get_ip_limiter().check(client_ip):
                 payload, _ = APIResponse.error(
                     ErrorCode.INVALID_INPUT,
-                    "Unauthorized",
-                    status_code=401
+                    "Rate limit exceeded. Slow down.",
+                    status_code=429
                 )
-                return jsonify(payload), 401
-        
-        # Log request start (debug level)
+                return jsonify(payload), 429
+
         logger.debug(f"Request started: {request.method} {request.path}")
     
     @app.after_request

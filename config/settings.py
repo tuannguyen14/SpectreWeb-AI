@@ -1,5 +1,7 @@
 """Server Settings and Constants"""
 import os
+import tempfile as _tempfile
+import secrets as _secrets
 
 # Version
 VERSION = "6.0.0"
@@ -18,7 +20,47 @@ CACHE_MAX_SIZE = 100
 CACHE_TTL = 300
 
 # File Manager
-FILE_MANAGER_BASE_DIR = "/tmp/spectreweb"
+FILE_MANAGER_BASE_DIR = os.environ.get("SPECTREWEB_FILE_BASE_DIR", os.path.join(_tempfile.gettempdir(), "spectreweb"))
+
+# --- Security Settings ---
+
+# API Authentication
+# If SPECTREWEB_API_KEY is not set, a random key is generated at startup.
+# The generated key is printed to stdout and logged.
+# Set SPECTREWEB_API_KEY="" to explicitly disable auth (NOT recommended).
+_api_key_env = os.environ.get("SPECTREWEB_API_KEY")
+if _api_key_env is not None:
+    API_KEY = _api_key_env if _api_key_env != "" else None
+else:
+    API_KEY = _secrets.token_hex(32)
+
+# Allow raw shell command execution via /api/command (DANGEROUS)
+# Must be explicitly enabled via environment variable.
+ALLOW_COMMAND_EXECUTION = os.environ.get("SPECTREWEB_ALLOW_COMMAND", "false").lower() in ("true", "1", "yes")
+
+# TLS verification for outbound requests
+# Pentest tools often target self-signed certs, so default to False for scanning
+# but allow override via environment variable.
+TLS_VERIFY = os.environ.get("SPECTREWEB_TLS_VERIFY", "false").lower() in ("true", "1", "yes")
+
+# File size limits for FileManager (in bytes, default 10MB)
+MAX_FILE_SIZE = int(os.environ.get("SPECTREWEB_MAX_FILE_SIZE", 10 * 1024 * 1024))
+
+# Max output size for command executor (in bytes, default 50MB)
+MAX_OUTPUT_SIZE = int(os.environ.get("SPECTREWEB_MAX_OUTPUT_SIZE", 50 * 1024 * 1024))
+
+# API rate limiting (per client IP)
+API_RATE_LIMIT_ENABLED = os.environ.get("SPECTREWEB_API_RATE_LIMIT", "true").lower() in ("true", "1", "yes")
+API_RATE_LIMIT_REQUESTS = int(os.environ.get("SPECTREWEB_API_RATE_LIMIT_RPM", 60))  # requests per minute
+API_RATE_LIMIT_BURST = int(os.environ.get("SPECTREWEB_API_RATE_LIMIT_BURST", 20))
+
+# Allowed directories for local secret scanning (os.pathsep-separated: ':' on Unix, ';' on Windows)
+_default_scan_dirs = os.path.join(_tempfile.gettempdir(), "spectreweb") + os.pathsep + _tempfile.gettempdir()
+ALLOWED_LOCAL_SCAN_DIRS = [
+    d for d in os.environ.get(
+        "SPECTREWEB_ALLOWED_SCAN_DIRS", _default_scan_dirs
+    ).split(os.pathsep) if d
+]
 
 # Default Browser Headers
 DEFAULT_HEADERS = {

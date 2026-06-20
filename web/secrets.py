@@ -14,6 +14,7 @@ import re
 import math
 import json
 import base64
+import threading
 from typing import Dict, Any, List, Tuple, Optional
 from dataclasses import dataclass
 from datetime import datetime
@@ -545,11 +546,18 @@ def needs_manual_verification(pattern_name: str, value: str, context: str) -> Tu
 # ============================================================================
 
 class SecretScanner:
-    """AI-powered secret scanner"""
+    """AI-powered secret scanner (thread-safe)"""
     
     def __init__(self):
         self.patterns = SECRET_PATTERNS
-        self.findings: List[SecretMatch] = []
+        self._findings: List[Dict] = []
+        self._findings_lock = threading.Lock()
+
+    @property
+    def findings(self) -> List[Dict]:
+        """Thread-safe accumulated findings list (copy)"""
+        with self._findings_lock:
+            return list(self._findings)
     
     def scan_text(self, content: str, source: str = "unknown") -> List[Dict]:
         """
@@ -638,7 +646,8 @@ class SecretScanner:
         for f in unique_findings:
             del f["raw_value"]
         
-        self.findings.extend(unique_findings)
+        with self._findings_lock:
+            self._findings.extend(unique_findings)
         return unique_findings
     
     def _mask_secret(self, secret: str, visible_chars: int = 4) -> str:
@@ -790,12 +799,12 @@ class SecretScanner:
         return summary
     
     def get_all_findings(self) -> List[Dict]:
-        """Get all findings from this scanner instance"""
-        return self.findings
+        """Get all findings from this scanner instance (thread-local)"""
+        return list(self.findings)
     
     def clear_findings(self):
-        """Clear all findings"""
-        self.findings = []
+        """Clear all findings (thread-local)"""
+        self._local.findings = []
 
 
 # Singleton instance
