@@ -26,15 +26,22 @@ from .secrets import (
 )
 
 # Advanced modules
-from .attack_session import (
-    AttackSession, create_attack_session, get_session, run_quick_attack,
-    fingerprint_endpoint, SmartPayloadEngine,
-    AttackPhase, EndpointType, VulnCategory
-)
 from .deep_secrets import (
     DeepSecretHunter, deep_secret_hunt, quick_secret_scan,
     scan_js_for_secrets, validate_secret, scan_local_secrets,
     SecretCategory, SecretRisk
+)
+
+# Origin IP Finder
+from .origin_finder import (
+    find_origin, quick_origin_check, verify_origin_ip,
+    query_crt_sh, extract_domains_from_crt, detect_cdn,
+    query_shodan_internetdb, query_fofa, fofa_search_by_favicon,
+    fofa_search_by_cert, fofa_search_by_body,
+    query_quake, quake_search_by_favicon, quake_search_by_cert, quake_search_by_body,
+    query_passive_dns_multi, query_alienvault_otx, query_hackertarget, query_validin,
+    brute_subdomains, load_subdomain_wordlist,
+    OriginCandidate, OriginResult
 )
 
 __all__ = [
@@ -56,10 +63,15 @@ __all__ = [
     "scan_for_secrets", "scan_js", "scan_url_for_secrets",
     "get_secret_patterns", "calculate_string_entropy",
     "SecretScanner", "SECRET_PATTERNS",
-    "AttackSession", "create_attack_session", "get_session", "run_quick_attack",
-    "fingerprint_endpoint", "SmartPayloadEngine", "AttackPhase",
-    "EndpointType", "VulnCategory",
     "DeepSecretHunter", "deep_secret_hunt", "quick_secret_scan",
     "scan_js_for_secrets", "validate_secret", "scan_local_secrets",
     "SecretCategory", "SecretRisk",
+    "find_origin", "quick_origin_check", "verify_origin_ip",
+    "query_crt_sh", "extract_domains_from_crt", "detect_cdn",
+    "query_shodan_internetdb", "query_fofa", "fofa_search_by_favicon",
+    "fofa_search_by_cert", "fofa_search_by_body",
+    "query_quake", "quake_search_by_favicon", "quake_search_by_cert", "quake_search_by_body",
+    "query_passive_dns_multi", "query_alienvault_otx", "query_hackertarget", "query_validin",
+    "brute_subdomains", "load_subdomain_wordlist",
+    "OriginCandidate", "OriginResult",
 ]

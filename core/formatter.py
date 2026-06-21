@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI - Smart Output Formatter v6.0.0
+SpectreWeb AI - Smart Output Formatter v7.0.0
 Beautiful real-time output with colors, tables, and progress bars
 """
 
@@ -85,7 +85,7 @@ class SpectreFormatter:
         ██║███╗██║██╔══╝  ██╔══██╗
         ╚███╔███╔╝███████╗██████╔╝
          ╚══╝╚══╝ ╚══════╝╚═════╝ {Color.RESET}
-{Color.GRAY}     👻 Phantom Recon Engine v6.0.0{Color.RESET}
+{Color.GRAY}     👻 Phantom Recon Engine v7.0.0{Color.RESET}
 """
 
     BOX_CHARS = {

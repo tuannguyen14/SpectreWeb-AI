@@ -9,12 +9,17 @@ _seclists_candidates = [
     "/usr/share/seclists",
     "/opt/SecLists",
     "/opt/seclists",
+    "D:\\SecLists",
+    "C:\\SecLists",
+    os.path.join(os.environ.get("PROGRAMFILES", "C:\\Program Files"), "SecLists"),
 ]
-SECLISTS_PATH = "/usr/share/SecLists"
+SECLISTS_PATH = None
 for _cand in _seclists_candidates:
     if _cand and os.path.isdir(_cand):
         SECLISTS_PATH = _cand
         break
+if SECLISTS_PATH is None:
+    SECLISTS_PATH = "/usr/share/SecLists"  # fallback (Linux default)
 
 WORDLISTS = {
     # Directory Discovery
@@ -122,7 +127,7 @@ WORDLISTS = {
         "category": "vuln"
     },
     "lfi_linux": {
-        "path": f"{SECLISTS_PATH}/Fuzzing/LFI/LFI-gracefulsecurity-linux.txt",
+        "path": f"{SECLISTS_PATH}/Fuzzing/LFI/Linux/LFI-gracefulsecurity-linux.txt",
         "purpose": "Linux-specific LFI paths",
         "use_when": "LFI on Linux",
         "category": "vuln"
@@ -174,6 +179,120 @@ WORDLISTS = {
         "purpose": "SQL injection auth bypass payloads",
         "use_when": "Login bypass testing",
         "category": "bypass"
+    },
+    
+    # NoSQL & SQLi Extras
+    "nosql": {
+        "path": f"{SECLISTS_PATH}/Fuzzing/Databases/SQLi/NoSQL.txt",
+        "purpose": "NoSQL injection payloads (MongoDB, CouchDB)",
+        "use_when": "NoSQL injection testing",
+        "category": "vuln"
+    },
+    "sqli_mysql_bypass": {
+        "path": f"{SECLISTS_PATH}/Fuzzing/Databases/SQLi/MySQL-SQLi-Login-Bypass.fuzzdb.txt",
+        "purpose": "MySQL login bypass payloads",
+        "use_when": "MySQL auth bypass",
+        "category": "bypass"
+    },
+    "sqli_polyglots": {
+        "path": f"{SECLISTS_PATH}/Fuzzing/Databases/SQLi/SQLi-Polyglots.txt",
+        "purpose": "SQLi polyglot payloads",
+        "use_when": "Multi-context SQLi",
+        "category": "vuln"
+    },
+    "sqli_quick": {
+        "path": f"{SECLISTS_PATH}/Fuzzing/Databases/SQLi/quick-SQLi.txt",
+        "purpose": "Quick SQLi payloads (fast scan)",
+        "use_when": "Initial SQLi probe",
+        "category": "vuln"
+    },
+    "login_bypass": {
+        "path": f"{SECLISTS_PATH}/Fuzzing/login_bypass.txt",
+        "purpose": "Login bypass payloads (15KB)",
+        "use_when": "Auth bypass testing",
+        "category": "bypass"
+    },
+    
+    # Default Credentials
+    "default_creds": {
+        "path": f"{SECLISTS_PATH}/Passwords/Default-Credentials/default-passwords.txt",
+        "purpose": "Default credentials for admin panels, routers, services",
+        "use_when": "Default credential testing",
+        "category": "auth"
+    },
+    "tomcat_creds": {
+        "path": f"{SECLISTS_PATH}/Passwords/Default-Credentials/tomcat-betterdefaultpasslist.txt",
+        "purpose": "Tomcat manager default credentials",
+        "use_when": "Tomcat admin panel",
+        "category": "auth"
+    },
+    "mysql_creds": {
+        "path": f"{SECLISTS_PATH}/Passwords/Default-Credentials/mysql-betterdefaultpasslist.txt",
+        "purpose": "MySQL default credentials",
+        "use_when": "MySQL service brute",
+        "category": "auth"
+    },
+    "postgres_creds": {
+        "path": f"{SECLISTS_PATH}/Passwords/Default-Credentials/postgres-betterdefaultpasslist.txt",
+        "purpose": "PostgreSQL default credentials",
+        "use_when": "PostgreSQL service brute",
+        "category": "auth"
+    },
+    
+    # API & GraphQL Discovery
+    "api_wild": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/api/api-seen-in-wild.txt",
+        "purpose": "166K real-world API endpoints seen in production",
+        "use_when": "Thorough API endpoint discovery",
+        "category": "api"
+    },
+    "graphql": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/graphql.txt",
+        "purpose": "GraphQL endpoint paths",
+        "use_when": "GraphQL discovery",
+        "category": "api"
+    },
+    "login_pages": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/Logins.fuzz.txt",
+        "purpose": "Login page paths",
+        "use_when": "Finding admin/login panels",
+        "category": "sensitive"
+    },
+    
+    # Subdomains (thorough)
+    "subdomains_110k": {
+        "path": f"{SECLISTS_PATH}/Discovery/DNS/subdomains-top1million-110000.txt",
+        "purpose": "Top 110K subdomains (thorough)",
+        "use_when": "Exhaustive subdomain enum",
+        "category": "subdomain"
+    },
+    
+    # Directory (additional)
+    "raft_medium_dirs": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/raft-medium-directories.txt",
+        "purpose": "Raft medium directory list (280K)",
+        "use_when": "Balanced directory enum",
+        "category": "directory"
+    },
+    "combined_dirs": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/combined_directories.txt",
+        "purpose": "Combined directories from multiple sources (1.2M)",
+        "use_when": "Comprehensive directory enum",
+        "category": "directory"
+    },
+    
+    # CMS (additional)
+    "joomla": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/CMS/joomla-plugins.fuzz.txt",
+        "purpose": "Joomla plugin paths",
+        "use_when": "Joomla pentesting",
+        "category": "cms"
+    },
+    "drupal": {
+        "path": f"{SECLISTS_PATH}/Discovery/Web-Content/CMS/Drupal.txt",
+        "purpose": "Drupal paths (3.7M)",
+        "use_when": "Drupal pentesting",
+        "category": "cms"
     },
     
     # Sensitive Files
@@ -257,20 +376,21 @@ def suggest_wordlist(task: str) -> List[Dict]:
     suggestions = []
     
     keywords = {
-        "directory": ["dir", "directory", "path", "enum"],
+        "directory": ["dir", "directory", "path", "enum", "fuzz"],
         "api": ["api", "rest", "graphql", "endpoint"],
         "params": ["param", "parameter", "query"],
         "subdomain": ["subdomain", "dns", "domain"],
-        "sqli": ["sql", "sqli", "injection", "database"],
+        "vuln": ["sql", "sqli", "injection", "database", "db", "nosql", "xss", "cross-site", "script", "lfi", "file inclusion", "traversal", "ssti", "template", "xxe", "xml", "command injection", "rce", "cmd", "polyglot"],
+        "sqli": ["sql", "sqli", "injection", "database", "db", "nosql"],
         "xss": ["xss", "cross-site", "script"],
-        "lfi": ["lfi", "file inclusion", "traversal"],
+        "lfi": ["lfi", "file inclusion", "traversal", "path traversal"],
         "ssti": ["ssti", "template"],
         "xxe": ["xxe", "xml"],
-        "cmd": ["command injection", "rce", "cmd"],
-        "auth": ["password", "brute", "login"],
-        "cms": ["wordpress", "wp", "drupal", "joomla"],
-        "bypass": ["403", "forbidden", "bypass"],
-        "sensitive": ["backup", "sensitive", "exposed"],
+        "cmd": ["command injection", "rce", "cmd", "os injection"],
+        "auth": ["password", "brute", "login", "credential", "default", "admin"],
+        "cms": ["wordpress", "wp", "drupal", "joomla", "cms"],
+        "bypass": ["403", "forbidden", "bypass", "waf", "filter"],
+        "sensitive": ["backup", "sensitive", "exposed", "login", "admin panel"],
     }
     
     for wl_name, wl_data in WORDLISTS.items():

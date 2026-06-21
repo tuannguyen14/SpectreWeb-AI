@@ -1,4 +1,4 @@
-# SpectreWeb AI v6.0.0 - Requirements
+# SpectreWeb AI v7.0.0 - Requirements
 #
 # INSTALLATION:
 #   python3 -m venv venv && source venv/bin/activate

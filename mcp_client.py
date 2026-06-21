@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI MCP Client v6.0.0 - Consolidated Tools
+SpectreWeb AI MCP Client v7.0.0 - Consolidated Tools
 Phantom Recon Engine - AI-Powered Web Penetration Testing
 
-Changes in v6.0.0:
-- Added 7 specialized attack workflows (API Hunt, DB-Pwn, Admin Takeover, Profit Vectors, Chain Attack, Full Recon)
-- Improved bare exception handling across all modules (replaced with specific exceptions)
+Changes in v7.0.0:
+- Removed self-learning AI orchestrator and broken AI model tools
+- Removed advanced attack-session auto-orchestration tools
+- Removed redundant combo/wrapper tools
+- Streamlined to 45 focused tools (manual-testing first)
+- Improved bare exception handling across all modules
 - Enhanced SpectreClient with better retry logic and error categorization
-- Added comprehensive gitignore for Windsurf IDE
-- Consolidated version consistency across entire project
-
-Changes in v5.4.0:
-- Consolidated from 67 to ~55 tools (merged duplicates)
-- Merged ai_train + ai_auto_train into single tool with 'auto' flag
-- Removed trivial generate_hash tool
-- Thread-safe cache and telemetry
-- Fixed version consistency across project
 
 Usage:
     python mcp_client.py [--server URL] [--debug]
@@ -177,7 +171,7 @@ def _truncate_result(result: Dict, max_lines: int = 500) -> Dict:
 
 
 def setup_mcp_server(client: SpectreClient) -> FastMCP:
-    """Setup MCP with consolidated tools (~50 tools)"""
+    """Setup MCP with consolidated tools (53 tools)"""
     mcp = FastMCP("spectreweb-mcp")
     
     # ==================== CORE (3 tools) ====================
@@ -517,33 +511,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         else:
             return client.post("api/scan/takeover/bulk", {"subdomains": subdomains[:100]})
     
-    # ==================== ANALYSIS TOOLS (3 tools) ====================
-    
-    @mcp.tool()
-    def analyze_response(response_body: str, url: str = "", status_code: int = 200) -> Dict[str, Any]:
-        """
-        🔍 Analyze HTTP response for vulnerabilities and info disclosure.
-        
-        Detects: SQL errors, stack traces, path disclosure, secrets, version info
-        """
-        logger.info("🔍 Analyzing response...")
-        
-        results = {}
-        
-        # Vuln scan
-        vuln = client.post("api/ai/vuln_scan", {"response": response_body, "url": url})
-        results["vulnerabilities"] = vuln
-        
-        # Error analysis if error status
-        if status_code >= 400:
-            error = client.post("api/manual/analyze-error", {"response": {"body": response_body, "status_code": status_code}})
-            results["error_analysis"] = error
-        
-        # Secret extraction
-        secrets = client.post("api/manual/extract-secrets", {"response": {"body": response_body}})
-        results["secrets"] = secrets
-        
-        return results
+    # ==================== ANALYSIS TOOLS (2 tools) ====================
     
     @mcp.tool()
     def analyze_hash(hash_str: str) -> Dict[str, Any]:
@@ -774,35 +742,6 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         else:
             return {"error": f"Unknown analysis type: {analysis_type}"}
     
-    # ==================== COMBO SCANS (2 tools) ====================
-    
-    @mcp.tool()
-    def quick_recon(target: str) -> Dict[str, Any]:
-        """
-        ⚡ Quick reconnaissance - runs whatweb + subfinder.
-        Best for initial target assessment.
-        """
-        logger.info(f"⚡ Quick recon: {target}")
-        
-        results = {"target": target, "scans": {}}
-        
-        url = f"https://{target}" if not target.startswith("http") else target
-        results["scans"]["whatweb"] = client.post("api/tools/whatweb", {"url": url})
-        
-        domain = target.replace("https://", "").replace("http://", "").split("/")[0]
-        results["scans"]["subfinder"] = client.post("api/tools/subfinder", {"domain": domain})
-        
-        results["success"] = True
-        return results
-    
-    @mcp.tool()
-    def quick_vuln_scan(url: str) -> Dict[str, Any]:
-        """
-        ⚡ Quick vulnerability scan - tests redirect, CRLF, header injection.
-        Fast initial assessment.
-        """
-        return client.post("api/scan/quick", {"url": url})
-    
     # ==================== FILES (3 tools) ====================
     
     @mcp.tool()
@@ -830,84 +769,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
             "headers1": headers1 or {}, "headers2": headers2 or {}
         })
     
-    # ==================== ADVANCED ATTACK SESSION (4 tools) ====================
-    
-    @mcp.tool()
-    def attack_session_create(url: str, auth_headers: dict = None, cookies: dict = None) -> Dict[str, Any]:
-        """
-        🎯 Create an advanced attack session with AI-driven orchestration.
-        
-        This starts a stateful session that:
-        - Fingerprints the endpoint type (auth, api, file, payment, etc.)
-        - Discovers parameters automatically
-        - Suggests relevant attack vectors
-        - Maintains context across multiple attacks
-        
-        Returns session_id for subsequent operations.
-        """
-        logger.info(f"🎯 Creating attack session: {url}")
-        return client.post("api/attack/session/create", {
-            "url": url, "auth_headers": auth_headers, "cookies": cookies
-        })
-    
-    @mcp.tool()
-    def attack_session_run(session_id: str, attack_type: str = "injection", 
-                          params: list = None, intensity: str = "medium",
-                          waf_bypass_level: int = 1, max_requests: int = 100) -> Dict[str, Any]:
-        """
-        ⚡ Run specific attack type in an existing session.
-        
-        Args:
-            session_id: Session ID from attack_session_create
-            attack_type: 'injection', 'idor', 'auth_bypass', 'business_logic', 'ssrf', 'lfi'
-            params: Specific parameters to test (or auto-discovered)
-            intensity: 'light', 'medium', 'heavy'
-            waf_bypass_level: 0-3 for WAF evasion mutations
-            max_requests: Maximum requests to send
-        
-        Returns findings with severity and evidence.
-        """
-        logger.info(f"⚡ Running {attack_type} attack (intensity: {intensity})")
-        return client.post(f"api/attack/session/{session_id}/run", {
-            "attack_type": attack_type, "params": params,
-            "intensity": intensity, "waf_bypass_level": waf_bypass_level,
-            "max_requests": max_requests
-        })
-    
-    @mcp.tool()
-    def attack_session_analyze(session_id: str) -> Dict[str, Any]:
-        """
-        🧠 Get AI-driven analysis and suggestions for an attack session.
-        
-        Returns:
-        - Priority attacks based on endpoint type
-        - Smart suggestions for next steps
-        - Recommended intensity level
-        """
-        return client.get(f"api/attack/session/{session_id}/analyze")
-    
-    @mcp.tool()
-    def attack_quick(url: str, attack_types: list = None, intensity: str = "medium") -> Dict[str, Any]:
-        """
-        🚀 Run quick automated attack without session management.
-        
-        Automatically:
-        - Fingerprints endpoint
-        - Selects appropriate payloads
-        - Runs specified attack types
-        - Returns comprehensive report
-        
-        Args:
-            url: Target URL with parameters
-            attack_types: List of attack types (default: ['injection', 'idor'])
-            intensity: 'light', 'medium', 'heavy'
-        """
-        logger.info(f"🚀 Quick attack: {url}")
-        return client.post("api/attack/quick", {
-            "url": url, "attack_types": attack_types, "intensity": intensity
-        })
-    
-    # ==================== DEEP SECRET HUNTING (2 tools) ====================
+    # ==================== DEEP SECRET HUNTING (3 tools) ====================
     
     @mcp.tool()
     def secrets_hunt(domain: str, max_urls: int = 100, max_js: int = 50, 
@@ -975,110 +837,8 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         return client.post("api/secrets/local", {"paths": paths})
     
     # ==========================
-    # SELF-LEARNING AI TOOLS
+    # LEARNING STORE (2 tools)
     # ==========================
-    
-    @mcp.tool()
-    def ai_status() -> Dict[str, Any]:
-        """
-        🧠 Get AI system status.
-        
-        Returns:
-        - Local AI models status (trained/not trained)
-        - Learning store statistics
-        - ML availability
-        """
-        logger.info("🧠 Getting AI status")
-        return client.get("api/ai/status")
-    
-    @mcp.tool()
-    def ai_classify_secret(
-        secret_type: str,
-        entropy: float = 3.0,
-        length: int = 20,
-        in_test_file: bool = False,
-        in_comment: bool = False,
-        has_placeholder: bool = False,
-        confidence: float = 0.5
-    ) -> Dict[str, Any]:
-        """
-        🔍 Classify a secret as real or false positive using local AI.
-        
-        Uses trained ML model if available, falls back to heuristics.
-        
-        Returns:
-        - is_real: Whether the secret is likely real
-        - score: Confidence score (0-1)
-        - model_used: "ml" or "heuristic"
-        """
-        logger.info(f"🔍 Classifying secret: {secret_type}")
-        return client.post("api/ai/classify_secret", {
-            "secret_type": secret_type,
-            "entropy": entropy,
-            "length": length,
-            "in_test_file": in_test_file,
-            "in_comment": in_comment,
-            "has_placeholder": has_placeholder,
-            "confidence": confidence
-        })
-    
-    @mcp.tool()
-    def ai_score_endpoint(
-        endpoint_type: str,
-        method: str = "GET",
-        path: str = "",
-        tech_stack: list = None
-    ) -> Dict[str, Any]:
-        """
-        📊 Score an endpoint's vulnerability risk using local AI.
-        
-        Returns:
-        - risk_score: 0-1 score
-        - priority: "high", "medium", or "low"
-        - model_used: "ml" or "heuristic"
-        """
-        logger.info(f"📊 Scoring endpoint: {method} {path}")
-        return client.post("api/ai/score_endpoint", {
-            "endpoint_type": endpoint_type,
-            "method": method,
-            "path": path,
-            "tech_stack": tech_stack or []
-        })
-    
-    @mcp.tool()
-    def ai_train(auto: bool = False) -> Dict[str, Any]:
-        """
-        🎓 Train local AI models from labeled data.
-        
-        Trains:
-        - SecretClassifier (reduces FP in secret detection)
-        - EndpointRiskScorer (prioritizes risky endpoints)
-        
-        Args:
-            auto: If True, only train if enough new labeled data (50+ samples, 10+ new).
-                  If False, force train immediately.
-        
-        Requires at least 50 labeled samples per model.
-        """
-        if auto:
-            logger.info("🔄 Auto-training AI models")
-            return client.post("api/ai/auto_train", {})
-        else:
-            logger.info("🎓 Training AI models")
-            return client.post("api/ai/train", {})
-    
-    @mcp.tool()
-    def ai_insights() -> Dict[str, Any]:
-        """
-        💡 Get smart insights from learning history.
-        
-        Returns:
-        - Most effective attack types (success rates)
-        - False positive patterns
-        - Recommendations for improvement
-        """
-        logger.info("💡 Getting AI insights")
-        return client.get("api/ai/insights")
     
     @mcp.tool()
     def learning_stats() -> Dict[str, Any]:
@@ -1119,47 +879,231 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
             params["label"] = label
         return client.get("api/learning/findings", params)
     
+    # ==========================
+    # ORIGIN IP FINDER (3 tools)
+    # ==========================
+
     @mcp.tool()
-    def learning_label(
-        finding_id: str,
-        label: str,
-        notes: str = None
+    def find_origin_ip(
+        domain: str,
+        verify: bool = True,
+        use_crt_sh: bool = True,
+        use_subdomain_leak: bool = True,
+        use_dns_records: bool = True,
+        use_securitytrails: bool = False,
+        use_favicon_hash: bool = False
     ) -> Dict[str, Any]:
         """
-        🏷️ Label a finding for AI training.
-        
+        Find the real origin IP of a domain behind CDN/WAF/Cloudflare.
+
+        Combines multiple free techniques:
+        - Certificate Transparency (crt.sh)
+        - Subdomain leak (origin.*, dev.*, staging.* ...)
+        - DNS records (MX/SPF/TXT → IP extraction)
+        - Origin verification (Host header + SSL cert match)
+        - [Optional] SecurityTrails historical DNS (needs API key)
+        - [Optional] Favicon hash for Shodan search
+
         Args:
-            finding_id: ID of the finding (e.g., "secret_abc123")
-            label: One of: "true_positive", "false_positive", "needs_review", "confirmed_bug", "not_exploitable"
-            notes: Optional notes
-        
-        This feedback helps the AI learn and improve!
+            domain: Target domain (e.g. "example.com")
+            verify: Verify candidate IPs by sending Host header (default True)
+            use_crt_sh: Query Certificate Transparency logs
+            use_subdomain_leak: Check common origin subdomain prefixes
+            use_dns_records: Query MX/SPF/TXT for non-CDN IPs
+            use_securitytrails: Use SecurityTrails API (needs SPECTREWEB_SECURITYTRAILS_API_KEY)
+            use_favicon_hash: Compute favicon hash for Shodan/Censys search
+
+        Returns:
+        - behind_cdn: Whether domain is behind CDN
+        - cdn_name: Detected CDN name
+        - verified_origins: List of confirmed origin IPs
+        - all_candidates: All candidate IPs with sources
+        - subdomains_found: Subdomains discovered
+        - dns_records: MX/SPF/TXT/A records
+        - cert_domains: Domains found in TLS certificates
         """
-        logger.info(f"🏷️ Labeling finding {finding_id} as {label}")
-        return client.post("api/learning/label", {
-            "finding_id": finding_id,
-            "label": label,
-            "notes": notes
+        logger.info(f"🔍 Finding origin IP for {domain}")
+        return client.post("api/origin/find", {
+            "domain": domain,
+            "verify": verify,
+            "use_crt_sh": use_crt_sh,
+            "use_subdomain_leak": use_subdomain_leak,
+            "use_dns_records": use_dns_records,
+            "use_securitytrails": use_securitytrails,
+            "use_favicon_hash": use_favicon_hash,
         })
-    
+
     @mcp.tool()
-    def learning_export(path: str = "/tmp/hexstrike_learning.json") -> Dict[str, Any]:
+    def verify_origin_ip(
+        ip: str,
+        domain: str
+    ) -> Dict[str, Any]:
         """
-        💾 Export learning data to JSON file.
-        
-        Useful for:
-        - Backing up your training data
-        - Sharing learnings across machines
-        - Analysis and debugging
+        Verify that an IP address serves the target domain.
+
+        Sends HTTPS request to the IP with `Host: domain` header,
+        then checks SSL certificate CN/SANs and HTTP response title.
+
+        Args:
+            ip: Candidate origin IP address
+            domain: Target domain to verify against
+
+        Returns:
+        - cert_match: Whether SSL cert contains the domain
+        - cert_cn: Certificate Common Name
+        - cert_sans: Subject Alternative Names
+        - http_status: HTTP status code from IP
+        - title: Page title from response
+        - leaked_headers: Any backend-leaking headers found
+        - verified: Whether IP is confirmed as origin
         """
-        logger.info(f"💾 Exporting learning data to {path}")
-        return client.post("api/learning/export", {"path": path})
-    
+        logger.info(f"🔍 Verifying {ip} serves {domain}")
+        return client.post("api/origin/verify", {"ip": ip, "domain": domain})
+
+    @mcp.tool()
+    def cert_transparency(domain: str) -> Dict[str, Any]:
+        """
+        Query Certificate Transparency logs via crt.sh.
+
+        Finds subdomains and certificate domains for a target.
+        Free, unlimited, no API key required.
+
+        Args:
+            domain: Target domain (e.g. "example.com")
+
+        Returns:
+        - subdomains: Subdomains found in CT logs
+        - cert_domains: All domains in certificates
+        - total_certs: Number of certificates found
+        """
+        logger.info(f"📜 Querying crt.sh for {domain}")
+        return client.post("api/origin/crt-sh", {"domain": domain})
+
+    @mcp.tool()
+    def shodan_lookup(ip: str) -> Dict[str, Any]:
+        """
+        Query Shodan InternetDB for an IP address.
+
+        Free, no API key required. Returns open ports, hostnames,
+        tags, CPEs, and vulnerabilities for the given IP.
+
+        Args:
+            ip: IP address to look up (e.g. "1.2.3.4")
+
+        Returns:
+        - ports: Open ports detected by Shodan
+        - hostnames: Hostnames associated with the IP
+        - tags: Shodan tags (cdn, cloud, etc.)
+        - cpes: Software/hardware identifiers
+        - vulns: Known vulnerabilities
+        """
+        logger.info(f"📡 Shodan InternetDB lookup for {ip}")
+        return client.post("api/origin/shodan", {"ip": ip})
+
+    @mcp.tool()
+    def fofa_search(query: str, size: int = 100) -> Dict[str, Any]:
+        """
+        Search FOFA search engine for IPs, hosts, and services.
+
+        Requires SPECTREWEB_FOFA_EMAIL + SPECTREWEB_FOFA_API_KEY env vars.
+        Free tier: limited queries, but favicon hash + cert search work.
+        FOFA is especially powerful for Asian targets (casino, gambling).
+
+        FOFA query syntax:
+        - icon_hash="-12345678"   (favicon hash search)
+        - cert="example.com"      (SSL cert CN/SAN search)
+        - body="example.com"      (HTTP body search)
+        - host="example.com"      (hostname search)
+
+        Args:
+            query: FOFA query string (e.g. 'cert="example.com"')
+            size: Max results (default 100, free tier limit)
+
+        Returns:
+        - results: List of {ip, port, host, title, server, country}
+        - total: Number of results
+        """
+        logger.info(f"🔍 FOFA search: {query}")
+        return client.post("api/origin/fofa", {"query": query, "size": size})
+
+    @mcp.tool()
+    def quake_search(query: str, size: int = 100) -> Dict[str, Any]:
+        """
+        Search Quake 360 search engine for IPs, hosts, and services.
+
+        Requires SPECTREWEB_QUAKE_API_KEY env var.
+        Free tier: ~3000 credits + 5 free API queries/month.
+        Excellent coverage for Asian targets (casino, gambling sites).
+
+        Quake query syntax:
+        - cert:"example.com"      (SSL cert CN/SAN search)
+        - favicon:"-12345678"     (favicon hash search)
+        - body:"example.com"      (HTTP body search)
+        - host:"example.com"      (hostname search)
+
+        Args:
+            query: Quake query string (e.g. 'cert="example.com"')
+            size: Max results (default 100, free tier limited)
+
+        Returns:
+        - results: List of {ip, port, hostname, title, server, source}
+        - total: Number of results
+        """
+        logger.info(f"🌐 Quake search: {query}")
+        return client.post("api/origin/quake", {"query": query, "size": size})
+
+    @mcp.tool()
+    def passive_dns_lookup(domain: str) -> Dict[str, Any]:
+        """
+        Query multiple free passive DNS sources for historical IPs.
+
+        Sources: AlienVault OTX + HackerTarget + Validin.
+        All free, no API keys required.
+
+        Finds IPs that historically resolved for the domain,
+        including IPs before CDN was enabled (origin candidates).
+
+        Args:
+            domain: Target domain (e.g. "example.com")
+
+        Returns:
+        - records: List of {ip, hostname, first_seen, last_seen, source}
+        - total: Number of unique IPs found
+        """
+        logger.info(f"🌐 Passive DNS lookup for {domain}")
+        return client.post("api/origin/passive-dns", {"domain": domain})
+
+    @mcp.tool()
+    def subdomain_brute(domain: str, wordlist: str = "subdomains_20k", max_workers: int = 50) -> Dict[str, Any]:
+        """
+        Brute-force subdomain enumeration using SecLists wordlist.
+
+        Multi-threaded DNS resolution (50 concurrent). Finds subdomains
+        that may bypass CDN and point directly to origin IP.
+        Free, no API key required. Uses SecLists wordlists (auto-detected).
+
+        Wordlist options:
+        - subdomains_5k: 5,000 entries (fast, ~10s)
+        - subdomains_20k: 20,000 entries (balanced, ~30s)
+        - subdomains_110k: 110,000 entries (thorough, ~2min)
+
+        Args:
+            domain: Target domain (e.g. "example.com")
+            wordlist: SecLists wordlist name (default: subdomains_20k)
+            max_workers: Concurrent DNS lookups (default: 50, max: 100)
+
+        Returns:
+        - results: List of {subdomain, ips, source} for resolved subdomains
+        - total: Number of subdomains resolved
+        """
+        logger.info(f"🔨 Subdomain brute: {domain} ({wordlist})")
+        return client.post("api/origin/subdomain-brute", {"domain": domain, "wordlist": wordlist, "max_workers": max_workers})
+
     return mcp
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v6.0.0 - Consolidated")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI MCP v7.0.0 - Consolidated")
     parser.add_argument("--server", default=DEFAULT_SERVER)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
@@ -1167,12 +1111,12 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
     
-    logger.info("👻 Starting SpectreWeb MCP v6.0.0 - Self-Learning AI (55 tools)")
+    logger.info("👻 Starting SpectreWeb MCP v7.0.0 (53 tools)")
     
     try:
         client = SpectreClient(args.server)
         mcp = setup_mcp_server(client)
-        logger.info("✅ MCP Ready - 55 tools loaded")
+        logger.info("✅ MCP Ready - 53 tools loaded")
         mcp.run()
     except Exception as e:
         logger.error(f"💥 {e}")

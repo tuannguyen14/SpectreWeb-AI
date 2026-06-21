@@ -7,7 +7,7 @@
         "--server",
         "http://127.0.0.1:8888"
       ],
-      "description": "SpectreWeb AI v6.0.0 - AI-Powered Web Penetration Testing. Set alwaysAllow to enable autonomous execution.",
+      "description": "SpectreWeb AI v7.0.0 - AI-Powered Web Penetration Testing. Set alwaysAllow to enable autonomous execution.",
       "timeout": 1500,
       "alwaysAllow": []
     }

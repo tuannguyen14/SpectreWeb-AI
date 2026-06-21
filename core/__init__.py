@@ -1,4 +1,4 @@
-"""SpectreWeb Core Module v6.0.0 - Self-Learning AI"""
+"""SpectreWeb Core Module v7.0.0 - Self-Learning AI"""
 from .cache import SimpleCache
 from .executor import CommandExecutor, execute_command
 from .file_manager import FileManager
@@ -28,10 +28,6 @@ from .local_ai import (
     get_local_ai, classify_secret, score_endpoint, rank_payloads,
     AIResponse, ML_AVAILABLE
 )
-from .ai_orchestrator import (
-    AIOrchestrator, AIRequest, AIBackend, TaskType,
-    get_orchestrator
-)
 
 __all__ = [
     "SimpleCache", "CommandExecutor", "execute_command", "FileManager",
@@ -47,6 +43,5 @@ __all__ = [
     "FeedbackLabel", "get_store", "add_secret_finding", "add_endpoint_finding",
     "record_attack", "LocalAI", "SecretClassifier", "EndpointRiskScorer",
     "PayloadRanker", "get_local_ai", "classify_secret", "score_endpoint",
-    "rank_payloads", "AIResponse", "ML_AVAILABLE", "AIOrchestrator",
-    "AIRequest", "AIBackend", "TaskType", "get_orchestrator",
+    "rank_payloads", "AIResponse", "ML_AVAILABLE",
 ]

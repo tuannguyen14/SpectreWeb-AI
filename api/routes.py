@@ -52,22 +52,24 @@ from web.manual_testing import (
     analyze_error_response, generate_idor_tests, generate_privilege_escalation_tests,
     create_test_chain, suggest_next_tests
 )
-from web.attack_session import (
-    create_attack_session, get_session, run_quick_attack,
-    fingerprint_endpoint, AttackSession
-)
 from web.deep_secrets import (
     deep_secret_hunt, quick_secret_scan, scan_js_for_secrets,
     DeepSecretHunter, scan_local_secrets
+)
+from web.origin_finder import (
+    find_origin, quick_origin_check, verify_origin_ip,
+    query_crt_sh, extract_domains_from_crt, query_shodan_internetdb,
+    query_fofa, fofa_search_by_favicon, fofa_search_by_cert, fofa_search_by_body,
+    query_quake, quake_search_by_favicon, quake_search_by_cert, quake_search_by_body,
+    query_passive_dns_multi, query_alienvault_otx, query_hackertarget, query_validin,
+    brute_subdomains, load_subdomain_wordlist
 )
 from core.job_queue import get_job_queue, JobStatus
 from core.response import APIResponse, ErrorCode, set_request_id
 from web.rate_limiter import get_rate_limiter
 from core.plugin import get_tool, list_tools, run_tool, ToolCategory
 from config.settings import VERSION
-from core.learning_store import get_store, FeedbackLabel
-from core.local_ai import get_local_ai
-from core.ai_orchestrator import get_orchestrator
+from core.learning_store import get_store
 
 
 def stream_tool_execution(tool, target, **kwargs):
@@ -1587,138 +1589,6 @@ def register_routes(app):
         })
     
     # ==========================
-    # ADVANCED ATTACK SESSION
-    # ==========================
-    
-    @app.route("/api/attack/session/create", methods=["POST"])
-    def attack_session_create():
-        """
-        Create an advanced attack session with AI-driven orchestration.
-        
-        Input: {url, auth_headers?, cookies?}
-        Returns: Session info with fingerprinting and suggestions
-        """
-        p = _json()
-        url = p.get("url", "")
-        if not url:
-            return jsonify({"error": "URL required"}), 400
-        
-        result = create_attack_session(
-            url,
-            auth_headers=p.get("auth_headers"),
-            cookies=p.get("cookies")
-        )
-        return jsonify(result)
-    
-    @app.route("/api/attack/session/<session_id>/analyze", methods=["GET"])
-    def attack_session_analyze(session_id):
-        """Get AI-driven analysis and suggestions for a session"""
-        session = get_session(session_id)
-        if not session:
-            return jsonify({"error": "Session not found"}), 404
-        
-        suggestions = session.analyze_and_suggest()
-        return jsonify(suggestions)
-    
-    @app.route("/api/attack/session/<session_id>/run", methods=["POST"])
-    def attack_session_run(session_id):
-        """
-        Run specific attack type in a session.
-        
-        Input: {attack_type, params?, intensity?, waf_bypass_level?, max_requests?}
-        """
-        session = get_session(session_id)
-        if not session:
-            return jsonify({"error": "Session not found"}), 404
-        
-        p = _json()
-        result = session.run_attack(
-            attack_type=p.get("attack_type", "injection"),
-            params=p.get("params"),
-            custom_payloads=p.get("custom_payloads"),
-            intensity=p.get("intensity", "medium"),
-            waf_bypass_level=p.get("waf_bypass_level", 1),
-            max_requests=p.get("max_requests", 100)
-        )
-        return jsonify(result)
-    
-    @app.route("/api/attack/session/<session_id>/idor", methods=["POST"])
-    def attack_session_idor(session_id):
-        """Run specialized IDOR test in a session"""
-        session = get_session(session_id)
-        if not session:
-            return jsonify({"error": "Session not found"}), 404
-        
-        p = _json()
-        result = session.run_idor_test(
-            id_param=p.get("param", "id"),
-            current_value=p.get("value", "1")
-        )
-        return jsonify(result)
-    
-    @app.route("/api/attack/session/<session_id>/auth-bypass", methods=["POST"])
-    def attack_session_auth_bypass(session_id):
-        """Run auth bypass test in a session"""
-        session = get_session(session_id)
-        if not session:
-            return jsonify({"error": "Session not found"}), 404
-        
-        endpoint = _json().get("endpoint")
-        result = session.run_auth_bypass_test(endpoint)
-        return jsonify(result)
-    
-    @app.route("/api/attack/session/<session_id>/report", methods=["GET"])
-    def attack_session_report(session_id):
-        """Get comprehensive session report"""
-        session = get_session(session_id)
-        if not session:
-            return jsonify({"error": "Session not found"}), 404
-        
-        return jsonify(session.get_report())
-    
-    @app.route("/api/attack/quick", methods=["POST"])
-    def attack_quick():
-        """
-        Run a quick automated attack without manual session management.
-        
-        Input: {url, attack_types?, intensity?}
-        """
-        p = _json()
-        url = p.get("url", "")
-        if not url:
-            return jsonify({"error": "URL required"}), 400
-        
-        result = run_quick_attack(
-            url,
-            attack_types=p.get("attack_types"),
-            intensity=p.get("intensity", "medium")
-        )
-        return jsonify(result)
-    
-    @app.route("/api/attack/fingerprint", methods=["POST"])
-    def attack_fingerprint():
-        """Fingerprint an endpoint to determine type and suggest attacks"""
-        p = _json()
-        url = p.get("url", "")
-        if not url:
-            return jsonify({"error": "URL required"}), 400
-        
-        # Optionally get response first
-        response = None
-        if p.get("fetch_response", True):
-            response = make_request(url, timeout=30)
-        
-        endpoint_type, confidence, reasons = fingerprint_endpoint(url, response)
-        return jsonify({
-            "success": True,
-            "url": url,
-            "endpoint_type": endpoint_type.value,
-            "confidence": confidence,
-            "reasons": reasons,
-            "response_status": response.get("status_code") if response else None
-        })
-    
-    # ==========================
     # DEEP SECRET HUNTING
     # ==========================
     
@@ -1837,68 +1707,8 @@ def register_routes(app):
         return jsonify(result)
     
     # ==========================
-    # SELF-LEARNING AI
+    # LEARNING STORE
     # ==========================
-    
-    @app.route("/api/ai/status", methods=["GET"])
-    def ai_status():
-        """Get AI system status including local models and learning store"""
-        orchestrator = get_orchestrator()
-        store = get_store()
-        
-        return jsonify({
-            "orchestrator": orchestrator.get_status(),
-            "learning_store": store.get_stats()
-        })
-    
-    @app.route("/api/ai/classify_secret", methods=["POST"])
-    def ai_classify_secret():
-        """Classify a secret as real or false positive using local AI"""
-        features = _json()
-        local_ai = get_local_ai()
-        response = local_ai.classify_secret(features)
-        return jsonify({
-            "success": response.success,
-            "result": response.result,
-            "confidence": response.confidence,
-            "model_used": response.result.get("model_used") if isinstance(response.result, dict) else None
-        })
-    
-    @app.route("/api/ai/score_endpoint", methods=["POST"])
-    def ai_score_endpoint():
-        """Score an endpoint's vulnerability risk using local AI"""
-        features = _json()
-        local_ai = get_local_ai()
-        response = local_ai.score_endpoint(features)
-        return jsonify({
-            "success": response.success,
-            "result": response.result,
-            "confidence": response.confidence,
-            "model_used": response.result.get("model_used") if isinstance(response.result, dict) else None
-        })
-    
-    @app.route("/api/ai/rank_payloads", methods=["POST"])
-    def ai_rank_payloads():
-        """Rank payloads by predicted effectiveness"""
-        data = _json()
-        payloads = data.get("payloads", [])
-        context = data.get("context", {})
-        
-        local_ai = get_local_ai()
-        response = local_ai.rank_payloads(payloads, context)
-        return jsonify({
-            "success": response.success,
-            "result": response.result,
-            "confidence": response.confidence,
-            "total": len(response.result) if isinstance(response.result, list) else 0
-        })
-    
-    @app.route("/api/ai/train", methods=["POST"])
-    def ai_train():
-        """Train local AI models from learning store data"""
-        orchestrator = get_orchestrator()
-        results = orchestrator.train_local_models()
-        return jsonify(results)
     
     @app.route("/api/learning/findings", methods=["GET"])
     def learning_get_findings():
@@ -1926,119 +1736,12 @@ def register_routes(app):
             "count": len(findings)
         })
     
-    @app.route("/api/learning/label", methods=["POST"])
-    def learning_label_finding():
-        """Label a finding for training"""
-        data = _json()
-        finding_id = data.get("finding_id")
-        label = data.get("label")
-        notes = data.get("notes")
-        
-        if not finding_id or not label:
-            return jsonify({"error": "finding_id and label required"}), 400
-        
-        # Validate label
-        valid_labels = [l.value for l in FeedbackLabel]
-        if label not in valid_labels:
-            return jsonify({"error": f"Invalid label. Must be one of: {valid_labels}"}), 400
-        
-        store = get_store()
-        success = store.label_finding(finding_id, label, notes)
-        
-        return jsonify({"success": success})
-    
     @app.route("/api/learning/stats", methods=["GET"])
     def learning_stats():
         """Get learning store statistics"""
         store = get_store()
         return jsonify(store.get_stats())
     
-    @app.route("/api/learning/export", methods=["POST"])
-    def learning_export():
-        """Export learning data to JSON (restricted to FileManager base dir)"""
-        from config.settings import FILE_MANAGER_BASE_DIR
-        from pathlib import Path
-        import os as _os
-
-        output_path = _json().get("path", "learning_export.json")
-        base_dir = str(Path(FILE_MANAGER_BASE_DIR).resolve())
-        
-        try:
-            resolved = str(Path(output_path).resolve())
-            if not (resolved == base_dir or resolved.startswith(base_dir + _os.sep)):
-                return jsonify({
-                    "error": f"Output path must be within {base_dir}"
-                }), 403
-        except Exception:
-            return jsonify({"error": "Invalid path"}), 400
-
-        store = get_store()
-        success = store.export_to_json(resolved)
-        
-        return jsonify({
-            "success": success,
-            "path": resolved
-        })
-    
-    @app.route("/api/ai/auto_train", methods=["POST"])
-    def ai_auto_train():
-        """
-        Automatically train models if enough labeled data is available.
-        
-        Conditions:
-        - At least 50 labeled samples
-        - At least 10 new samples since last train
-        """
-        orchestrator = get_orchestrator()
-        result = orchestrator.auto_train_if_ready()
-        return jsonify(result)
-    
-    @app.route("/api/ai/insights", methods=["GET"])
-    def ai_insights():
-        """
-        Get smart insights based on learning history.
-        
-        Returns:
-        - Most effective attack types
-        - Common false positive patterns
-        - Recommendations
-        """
-        orchestrator = get_orchestrator()
-        return jsonify(orchestrator.get_smart_insights())
-    
-    @app.route("/api/ai/filter_secrets", methods=["POST"])
-    def ai_filter_secrets():
-        """
-        Use local AI to filter/rank secrets by likelihood of being real.
-        
-        Input: {secrets: [{secret_type, entropy, ...}, ...]}
-        Output: Secrets sorted by is_real probability, with AI scores
-        """
-        secrets = _json().get("secrets", [])
-        orchestrator = get_orchestrator()
-        
-        results = []
-        for secret in secrets:
-            response = orchestrator.classify_secret(secret)
-            if response.success:
-                results.append({
-                    **secret,
-                    "ai_score": response.result.get("score", 0.5),
-                    "ai_is_real": response.result.get("is_real", True),
-                    "ai_confidence": response.confidence,
-                    "model_used": response.result.get("model_used", "heuristic")
-                })
-        
-        # Sort by AI score descending (most likely real first)
-        results.sort(key=lambda x: x.get("ai_score", 0), reverse=True)
-        
-        return jsonify({
-            "filtered_secrets": results,
-            "total": len(results),
-            "likely_real": len([r for r in results if r.get("ai_is_real", True)]),
-            "likely_fp": len([r for r in results if not r.get("ai_is_real", True)])
-        })
-
     # ==========================
     # JOB QUEUE
     # ==========================
@@ -2228,4 +1931,207 @@ def register_routes(app):
             "success": True,
             "job_id": job_id,
             "message": f"Tool {name} started in background"
+        })
+
+    # ==========================
+    # ORIGIN IP FINDER
+    # ==========================
+
+    @app.route("/api/origin/find", methods=["POST"])
+    def origin_find():
+        """
+        Find real origin IP behind CDN/WAF.
+
+        Input: {
+            domain: "example.com",
+            verify: true,              # Verify candidates via Host header
+            use_crt_sh: true,          # Certificate Transparency
+            use_subdomain_leak: true,  # Check origin.* subdomains
+            use_dns_records: true,     # MX/SPF/TXT records
+            use_securitytrails: false, # Historical DNS (needs API key)
+            use_favicon_hash: false    # Favicon hash for Shodan search
+        }
+        """
+        p = _json()
+        domain = (p.get("domain") or "").strip()
+        if not domain:
+            return jsonify({"success": False, "error": "Domain required"}), 400
+
+        result = find_origin(
+            domain=domain,
+            verify=p.get("verify", True),
+            use_crt_sh=p.get("use_crt_sh", True),
+            use_subdomain_leak=p.get("use_subdomain_leak", True),
+            use_dns_records=p.get("use_dns_records", True),
+            use_securitytrails=p.get("use_securitytrails", False),
+            use_favicon_hash=p.get("use_favicon_hash", False),
+        )
+        telemetry.record("origin_find", bool(result.get("verified_origins")))
+        return jsonify({"success": True, "data": result})
+
+    @app.route("/api/origin/quick", methods=["POST"])
+    def origin_quick():
+        """
+        Quick origin check - crt.sh + subdomain leak + DNS only.
+        No verification, faster for initial recon.
+        """
+        p = _json()
+        domain = (p.get("domain") or "").strip()
+        if not domain:
+            return jsonify({"success": False, "error": "Domain required"}), 400
+
+        result = quick_origin_check(domain)
+        telemetry.record("origin_quick", bool(result.get("candidates")))
+        return jsonify({"success": True, "data": result})
+
+    @app.route("/api/origin/verify", methods=["POST"])
+    def origin_verify():
+        """
+        Verify a specific IP serves the target domain.
+
+        Input: {ip: "1.2.3.4", domain: "example.com"}
+        """
+        p = _json()
+        ip = (p.get("ip") or "").strip()
+        domain = (p.get("domain") or "").strip()
+        if not ip or not domain:
+            return jsonify({"success": False, "error": "IP and domain required"}), 400
+
+        details = verify_origin_ip(ip, domain)
+        return jsonify({"success": True, "data": details})
+
+    @app.route("/api/origin/crt-sh", methods=["POST"])
+    def origin_crt_sh():
+        """
+        Query Certificate Transparency logs via crt.sh.
+
+        Input: {domain: "example.com"}
+        Returns: subdomains and cert domains found.
+        """
+        p = _json()
+        domain = (p.get("domain") or "").strip()
+        if not domain:
+            return jsonify({"success": False, "error": "Domain required"}), 400
+
+        cert_entries = query_crt_sh(domain)
+        subdomains, cert_domains = extract_domains_from_crt(domain, cert_entries)
+        return jsonify({
+            "success": True,
+            "data": {
+                "domain": domain,
+                "subdomains": subdomains,
+                "cert_domains": cert_domains,
+                "total_certs": len(cert_entries),
+            }
+        })
+
+    @app.route("/api/origin/shodan", methods=["POST"])
+    def origin_shodan():
+        """
+        Query Shodan InternetDB for an IP address.
+        Free, no API key required.
+
+        Input: {ip: "1.2.3.4"}
+        Returns: ports, hostnames, tags, CPEs, vulns.
+        """
+        p = _json()
+        ip = (p.get("ip") or "").strip()
+        if not ip:
+            return jsonify({"success": False, "error": "IP required"}), 400
+
+        data = query_shodan_internetdb(ip)
+        return jsonify({"success": True, "data": {"ip": ip, "shodan": data}})
+
+    @app.route("/api/origin/fofa", methods=["POST"])
+    def origin_fofa():
+        """
+        Search FOFA by query string.
+
+        Requires SPECTREWEB_FOFA_EMAIL + SPECTREWEB_FOFA_API_KEY env vars.
+        Free tier: limited queries, but favicon hash + cert search work.
+
+        Input: {query: 'cert="example.com"', size: 100}
+        Returns: List of {ip, port, host, title, server, country}.
+        """
+        p = _json()
+        query = (p.get("query") or "").strip()
+        if not query:
+            return jsonify({"success": False, "error": "query required"}), 400
+        size = min(int(p.get("size", 100)), 100)
+
+        results = query_fofa(query, size=size)
+        return jsonify({"success": True, "data": {"query": query, "results": results, "total": len(results)}})
+
+    @app.route("/api/origin/quake", methods=["POST"])
+    def origin_quake():
+        """
+        Search Quake 360 by query string.
+
+        Requires SPECTREWEB_QUAKE_API_KEY env var.
+        Free tier: ~3000 credits + 5 free API queries/month.
+        Excellent coverage for Asian targets (casino, gambling).
+
+        Quake query syntax:
+        - cert:"example.com"      (SSL cert search)
+        - favicon:"-12345678"     (favicon hash search)
+        - body:"example.com"      (HTTP body search)
+        - host:"example.com"      (hostname search)
+
+        Input: {query: 'cert:"example.com"', size: 100}
+        Returns: List of {ip, port, hostname, title, server, source}.
+        """
+        p = _json()
+        query = (p.get("query") or "").strip()
+        if not query:
+            return jsonify({"success": False, "error": "query required"}), 400
+        size = min(int(p.get("size", 100)), 100)
+
+        results = query_quake(query, size=size)
+        return jsonify({"success": True, "data": {"query": query, "results": results, "total": len(results)}})
+
+    @app.route("/api/origin/passive-dns", methods=["POST"])
+    def origin_passive_dns():
+        """
+        Query multiple free passive DNS sources (OTX + HackerTarget + Validin).
+
+        Free, no API key required.
+
+        Input: {domain: "example.com"}
+        Returns: Combined list of {ip, hostname, first_seen, last_seen, source}.
+        """
+        p = _json()
+        domain = (p.get("domain") or "").strip().lower()
+        if not domain:
+            return jsonify({"success": False, "error": "Domain required"}), 400
+
+        records = query_passive_dns_multi(domain)
+        return jsonify({"success": True, "data": {"domain": domain, "records": records, "total": len(records)}})
+
+    @app.route("/api/origin/subdomain-brute", methods=["POST"])
+    def origin_subdomain_brute():
+        """
+        Brute-force subdomain enumeration using SecLists wordlist.
+
+        Multi-threaded DNS resolution. Finds subdomains that may bypass CDN.
+        Free, no API key required. Uses SecLists wordlists (auto-detected).
+
+        Input: {domain: "example.com", wordlist: "subdomains_20k", max_workers: 50}
+        Returns: List of {subdomain, ips, source} for resolved subdomains.
+        """
+        p = _json()
+        domain = (p.get("domain") or "").strip().lower()
+        if not domain:
+            return jsonify({"success": False, "error": "Domain required"}), 400
+        wordlist = p.get("wordlist", "subdomains_20k")
+        max_workers = min(int(p.get("max_workers", 50)), 100)
+
+        results = brute_subdomains(domain, wordlist_name=wordlist, max_workers=max_workers)
+        return jsonify({
+            "success": True,
+            "data": {
+                "domain": domain,
+                "wordlist": wordlist,
+                "results": results,
+                "total": len(results),
+            }
         })

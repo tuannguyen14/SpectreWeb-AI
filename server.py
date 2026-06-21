@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpectreWeb AI - Phantom Recon Engine v6.0.0
+SpectreWeb AI - Phantom Recon Engine v7.0.0
 AI-Powered Web Penetration Testing with Smart Reporting
 
 Usage:
@@ -68,7 +68,7 @@ atexit.register(_shutdown_job_queue)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SpectreWeb AI Server v6.0.0")
+    parser = argparse.ArgumentParser(description="SpectreWeb AI Server v7.0.0")
     parser.add_argument("--host", default=API_HOST, help="Host to bind")
     parser.add_argument("--port", type=int, default=API_PORT, help="Port to bind")
     parser.add_argument("--debug", action="store_true", help="Debug mode")
@@ -85,7 +85,7 @@ def main():
     )
     
     print(create_banner())
-    logger.info(f"👻 Starting SpectreWeb AI v6.0.0 on {args.host}:{args.port}")
+    logger.info(f"👻 Starting SpectreWeb AI v7.0.0 on {args.host}:{args.port}")
 
     # Display API key at startup for operator convenience
     from config.settings import API_KEY, ALLOW_COMMAND_EXECUTION
