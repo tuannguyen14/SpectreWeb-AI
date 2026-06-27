@@ -95,7 +95,19 @@ echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
 
 > Tools that are not installed simply report "not installed"; the rest keep working.
 
-### 3. Start the Server
+### 3. Configure Environment (optional)
+
+Copy the example env file and fill in your API keys:
+
+```bash
+cp .env.example .env        # Windows: copy .env.example .env
+# Edit .env with your favorite editor
+```
+
+> `.env` is auto-loaded by `python-dotenv` (included in requirements.txt).
+> You can also set env vars manually — see [Environment Variables](#-environment-variables) below.
+
+### 4. Start the Server
 
 ```bash
 python server.py
@@ -103,7 +115,7 @@ python server.py
 # ✅ Server running at http://127.0.0.1:8888
 ```
 
-### 4. Configure MCP
+### 5. Configure MCP
 
 ```json
 {
@@ -134,12 +146,22 @@ When enabled, send the key via the `X-API-Key` header or `Authorization: Bearer 
 
 All configuration is done via environment variables. No hardcoded keys.
 
+> 💡 **Tip:** Copy `.env.example` to `.env` and fill in your keys. The server auto-loads `.env` via `python-dotenv`.
+
 ### Core
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SPECTREWEB_API_KEY` | *(none)* | API authentication key. If unset, auth is disabled |
+| `SPECTREWEB_ALLOW_COMMAND` | `false` | Allow raw shell command execution via `/api/command` (DANGEROUS — only enable in trusted/local environments) |
 | `SPECTREWEB_SECLISTS_PATH` | auto-detect | Path to SecLists directory (see SecLists Configuration below) |
+| `SPECTREWEB_TLS_VERIFY` | `false` | Verify TLS certificates for outbound requests. Default off (pentest targets often use self-signed certs) |
+| `SPECTREWEB_MAX_FILE_SIZE` | `10485760` (10MB) | Max file size for FileManager operations (bytes) |
+| `SPECTREWEB_MAX_OUTPUT_SIZE` | `52428800` (50MB) | Max output size for command executor (bytes) |
+| `SPECTREWEB_API_RATE_LIMIT` | `true` | Enable per-client-IP API rate limiting |
+| `SPECTREWEB_API_RATE_LIMIT_RPM` | `60` | API rate limit: requests per minute per client IP |
+| `SPECTREWEB_API_RATE_LIMIT_BURST` | `20` | API rate limit: burst size (max concurrent requests) |
+| `SPECTREWEB_ALLOWED_SCAN_DIRS` | temp dirs | Allowed directories for local secret scanning (`;`-separated on Windows, `:` on Linux) |
 
 ### Origin IP Finder (optional API keys)
 

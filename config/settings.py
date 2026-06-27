@@ -4,7 +4,7 @@ import tempfile as _tempfile
 import secrets as _secrets
 
 # Version
-VERSION = "6.0.0"
+VERSION = "7.0.0"
 
 # SpectreWeb AI Server Configuration
 API_PORT = int(os.environ.get('SPECTREWEB_PORT', 8888))

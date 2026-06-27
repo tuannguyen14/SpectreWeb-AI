@@ -12,6 +12,7 @@ flask>=2.3.0             # Web framework for API server
 requests>=2.31.0         # HTTP client
 psutil>=5.9.0            # System/process utilities
 fastmcp>=0.2.0           # MCP framework (FastMCP server)
+python-dotenv>=1.0.0     # .env file loader (optional but recommended)
 
 # ============================================================================
 # WEB SCRAPING & PARSING

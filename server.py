@@ -19,6 +19,13 @@ import logging
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+# Load .env file if present (python-dotenv)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(project_root / ".env")
+except ImportError:
+    pass
+
 # Ensure projectdiscovery tools take precedence
 os.environ["PATH"] = "/usr/local/bin:" + os.environ.get("PATH", "")
 
