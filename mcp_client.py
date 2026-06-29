@@ -7,7 +7,7 @@ Changes in v7.0.0:
 - Removed self-learning AI orchestrator and broken AI model tools
 - Removed advanced attack-session auto-orchestration tools
 - Removed redundant combo/wrapper tools
-- Streamlined to 45 focused tools (manual-testing first)
+- Streamlined to 47 focused tools (manual-testing first)
 - Improved bare exception handling across all modules
 - Enhanced SpectreClient with better retry logic and error categorization
 
@@ -171,7 +171,7 @@ def _truncate_result(result: Dict, max_lines: int = 500) -> Dict:
 
 
 def setup_mcp_server(client: SpectreClient) -> FastMCP:
-    """Setup MCP with consolidated tools (53 tools)"""
+    """Setup MCP with consolidated tools (47 tools)"""
     mcp = FastMCP("spectreweb-mcp")
     
     # ==================== CORE (3 tools) ====================
@@ -511,12 +511,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         else:
             return client.post("api/scan/takeover/bulk", {"subdomains": subdomains[:100]})
     
-    # ==================== ANALYSIS TOOLS (2 tools) ====================
-    
-    @mcp.tool()
-    def analyze_hash(hash_str: str) -> Dict[str, Any]:
-        """Identify hash type and get crack suggestions."""
-        return client.post("api/analyze/hash", {"hash": hash_str})
+    # ==================== ANALYSIS TOOLS (1 tool) ====================
     
     @mcp.tool()
     def test_cors(url: str, origin: str = "https://evil.com") -> Dict[str, Any]:
@@ -691,7 +686,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         else:
             return {"error": f"Unknown action: {action}"}
     
-    # ==================== CONTEXT (2 tools) ====================
+    # ==================== CONTEXT (1 tool) ====================
     
     @mcp.tool()
     def load_context(target: str) -> Dict[str, Any]:
@@ -703,62 +698,6 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         logger.info(f"📋 Loading context for: {target}")
         return client.post("api/context/load", {"target": target})
     
-    @mcp.tool()
-    def list_targets() -> Dict[str, Any]:
-        """List all previously scanned targets."""
-        return client.get("api/context/targets")
-    
-    # ==================== AI ANALYSIS (1 unified tool) ====================
-    
-    @mcp.tool()
-    def ai_analyze(analysis_type: str, data: dict = None, target: str = "") -> Dict[str, Any]:
-        """
-        🧠 AI-powered analysis.
-        
-        Args:
-            analysis_type: 'scan_result', 'tech_detect', 'classify_endpoint', 'hints', 'summary'
-            data: Data to analyze (response, headers, etc.)
-            target: Target for hints/summary
-        
-        Returns:
-            AI analysis with findings and recommendations
-        """
-        logger.info(f"🧠 AI {analysis_type}")
-        
-        if analysis_type == "scan_result":
-            return client.post("api/ai/analyze", {"tool": data.get("tool", "unknown"), "result": data})
-        elif analysis_type == "tech_detect":
-            return client.post("api/ai/detect_tech", {"response": data.get("response", ""), "headers": data.get("headers", {})})
-        elif analysis_type == "classify_endpoint":
-            return client.post("api/ai/classify", {"url": data.get("url", ""), "method": data.get("method", "GET")})
-        elif analysis_type == "hints":
-            return client.post("api/ai/hints", {
-                "target": target,
-                "findings": data.get("findings", []),
-                "technologies": data.get("technologies", [])
-            })
-        elif analysis_type == "summary":
-            return client.get("api/ai/summary")
-        else:
-            return {"error": f"Unknown analysis type: {analysis_type}"}
-    
-    # ==================== FILES (3 tools) ====================
-    
-    @mcp.tool()
-    def create_file(filename: str, content: str, binary: bool = False) -> Dict[str, Any]:
-        """Create file on server."""
-        return client.post("api/files/create", {"filename": filename, "content": content, "binary": binary})
-    
-    @mcp.tool()
-    def read_file(filename: str) -> Dict[str, Any]:
-        """Read file from server."""
-        return client.post("api/files/read", {"filename": filename})
-    
-    @mcp.tool()
-    def list_files(directory: str = ".") -> Dict[str, Any]:
-        """List files in directory."""
-        return client.get("api/files/list", {"directory": directory})
-    
     # ==================== RESPONSE COMPARISON (1 tool) ====================
     
     @mcp.tool()
@@ -769,7 +708,7 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
             "headers1": headers1 or {}, "headers2": headers2 or {}
         })
     
-    # ==================== DEEP SECRET HUNTING (3 tools) ====================
+    # ==================== DEEP SECRET HUNTING (2 tools) ====================
     
     @mcp.tool()
     def secrets_hunt(domain: str, max_urls: int = 100, max_js: int = 50, 
@@ -816,71 +755,9 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         """
         logger.info(f"📜 JS secret hunt: {len(urls)} files")
         return client.post("api/secrets/js_hunt", {"urls": urls})
-    
-    @mcp.tool()
-    def secrets_local_scan(paths: list) -> Dict[str, Any]:
-        """
-        📁 Scan local files/directories for secrets (no network requests).
-        
-        Scans code files (.py, .js, .ts, .java, .go, etc.) and config files
-        (.json, .yml, .env, .properties, etc.) for hardcoded secrets.
-        
-        Args:
-            paths: List of file or directory paths to scan
-        
-        Returns:
-        - Secrets found with category and risk scoring
-        - Exploitation hints for each secret
-        - Attack path suggestions
-        """
-        logger.info(f"📁 Local secrets scan: {len(paths)} paths")
-        return client.post("api/secrets/local", {"paths": paths})
-    
+
     # ==========================
-    # LEARNING STORE (2 tools)
-    # ==========================
-    
-    @mcp.tool()
-    def learning_stats() -> Dict[str, Any]:
-        """
-        📈 Get learning store statistics.
-        
-        Returns:
-        - Total findings stored
-        - Findings by type (secret, endpoint, attack)
-        - Labeled findings count
-        - Attack success rate by type
-        """
-        logger.info("📈 Getting learning stats")
-        return client.get("api/learning/stats")
-    
-    @mcp.tool()
-    def learning_list_findings(
-        finding_type: str = None,
-        label: str = None,
-        limit: int = 50
-    ) -> Dict[str, Any]:
-        """
-        📋 List findings from learning store.
-        
-        Args:
-            finding_type: "secret", "endpoint", "attack_result" (optional)
-            label: "true_positive", "false_positive", etc. (optional)
-            limit: Max results (default 50)
-        
-        Returns:
-        - List of findings with their labels
-        """
-        logger.info(f"📋 Listing findings: type={finding_type}, label={label}")
-        params = {"limit": limit}
-        if finding_type:
-            params["type"] = finding_type
-        if label:
-            params["label"] = label
-        return client.get("api/learning/findings", params)
-    
-    # ==========================
-    # ORIGIN IP FINDER (3 tools)
+    # ORIGIN IP FINDER (8 tools)
     # ==========================
 
     @mcp.tool()
@@ -1099,6 +976,102 @@ def setup_mcp_server(client: SpectreClient) -> FastMCP:
         logger.info(f"🔨 Subdomain brute: {domain} ({wordlist})")
         return client.post("api/origin/subdomain-brute", {"domain": domain, "wordlist": wordlist, "max_workers": max_workers})
 
+    # ==========================
+    # EXPOSED FILES / CMS / VHOST SCANNERS (3 tools)
+    # ==========================
+
+    @mcp.tool()
+    def scan_exposed_files(url: str) -> Dict[str, Any]:
+        """
+        🔍 Scan for exposed sensitive files on a web server.
+
+        Tests 100+ high-value paths including:
+        - Git repository: .git/HEAD, .git/config
+        - Environment files: .env, .env.local, .env.production
+        - Config files: wp-config.php, config.php, settings.py, database.yml
+        - Backup files: backup.zip, backup.sql, db.sql, *.bak, *.old
+        - Editor files: index.php~, index.php.swp, *.orig
+        - Server config: .htaccess, web.config, nginx.conf
+        - Cloud/CI: .aws/credentials, Dockerfile, docker-compose.yml, Jenkinsfile
+        - Spring Boot: /actuator, /actuator/env, /actuator/heapdump
+        - SSH keys: .ssh/id_rsa, .ssh/authorized_keys
+        - Logs: error_log, access_log, debug.log
+
+        Uses 20 concurrent requests for speed.
+
+        Args:
+            url: Target base URL (e.g., "https://example.com")
+
+        Returns:
+            - found: List of {path, url, status, size, content_type, preview}
+            - total_found: Number of exposed files
+            - total_tested: Number of paths tested
+        """
+        logger.info(f"🔍 Scanning exposed files: {url}")
+        return client.post("api/scan/exposed-files", {"url": url})
+
+    @mcp.tool()
+    def scan_cms(url: str) -> Dict[str, Any]:
+        """
+        📝 Detect and scan CMS (WordPress, Joomla, Drupal, Magento).
+
+        Identifies:
+        - CMS type and version
+        - Admin paths (wp-admin, administrator, /admin)
+        - Installed plugins and themes (WordPress)
+        - Security misconfigurations:
+          - wp-config.php backup exposed
+          - XML-RPC enabled
+          - WordPress REST API exposed
+          - Directory listing enabled
+          - Joomla manifest version disclosure
+          - Drupal CHANGELOG.txt accessible
+          - Drupalgeddon (SA-CORE-2018-002) RCE check
+
+        Args:
+            url: Target URL (e.g., "https://example.com")
+
+        Returns:
+            - detected: CMS type (wordpress/joomla/drupal/magento/none)
+            - version: Detected version
+            - admin_paths: Accessible admin paths with status codes
+            - plugins: Detected plugins (WordPress)
+            - themes: Detected themes (WordPress)
+            - misconfigurations: Security issues found with severity
+        """
+        logger.info(f"📝 CMS scan: {url}")
+        return client.post("api/scan/cms", {"url": url})
+
+    @mcp.tool()
+    def discover_vhosts(url: str, wordlist: list = None, max_workers: int = 20) -> Dict[str, Any]:
+        """
+        🏠 Discover virtual hosts by brute-forcing Host header.
+
+        Sends requests with different Host header values (admin.example.com,
+        dev.example.com, staging.example.com, etc.) to find vhosts
+        that serve different content from the main site.
+
+        Uses a built-in wordlist of 100+ common vhost prefixes:
+        admin, dev, staging, api, internal, vpn, grafana, jenkins, etc.
+
+        Compares response status, size, and title with baseline to
+        detect unique vhosts. Many admin panels are only accessible
+        via specific vhost names.
+
+        Args:
+            url: Target URL (e.g., "https://example.com")
+            wordlist: Custom vhost names to test (default: built-in 100+)
+            max_workers: Concurrent requests (default: 20)
+
+        Returns:
+            - baseline: Baseline response (host, status, size, title)
+            - found: List of {vhost, status, size, title, diff}
+            - total_found: Number of unique vhosts discovered
+            - total_tested: Number of vhost names tested
+        """
+        logger.info(f"🏠 Vhost discovery: {url}")
+        return client.post("api/scan/vhosts", {"url": url, "wordlist": wordlist, "max_workers": max_workers})
+
     return mcp
 
 
@@ -1111,12 +1084,12 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
     
-    logger.info("👻 Starting SpectreWeb MCP v7.0.0 (53 tools)")
+    logger.info("👻 Starting SpectreWeb MCP v7.0.0 (47 tools)")
     
     try:
         client = SpectreClient(args.server)
         mcp = setup_mcp_server(client)
-        logger.info("✅ MCP Ready - 53 tools loaded")
+        logger.info("✅ MCP Ready - 47 tools loaded")
         mcp.run()
     except Exception as e:
         logger.error(f"💥 {e}")

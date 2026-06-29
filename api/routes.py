@@ -10,23 +10,23 @@ import threading
 import json
 
 from core.executor import execute_command
-from core.file_manager import file_manager
 from core.telemetry import telemetry
 from core.cache import cache
 from core.utils import clean_projectdiscovery_output
 from web import make_request, extract_links, extract_forms, extract_comments, extract_js_files
 from web import encode_payload, decode_payload, XSS_PAYLOADS, SQLI_PAYLOADS, LFI_PAYLOADS, SSRF_PAYLOADS
-from web import analyze_jwt, identify_hash, generate_hashes, analyze_cors_headers, compare_responses, detect_idor_params
+from web import analyze_jwt, analyze_cors_headers, compare_responses, detect_idor_params
 from config import WORDLISTS, get_wordlist, suggest_wordlist, SECLISTS_PATH
 from core.reporter import get_report, Finding
-from core.context import load_target_context, list_all_targets, get_context
+from core.context import load_target_context, get_context
 from web.exploits import (
     generate_auth_bypass_tests, generate_waf_bypass_variants,
-    SSTI_PAYLOADS, get_business_logic_tests, generate_cache_poison_tests
+    SSTI_PAYLOADS, get_business_logic_tests, generate_cache_poison_tests,
+    scan_exposed_files, scan_cms, discover_vhosts
 )
 from core.analyzer import (
     analyzer, analyze_response, detect_technologies, 
-    get_attack_vectors, classify_endpoint, analyze_scan
+    get_attack_vectors, classify_endpoint
 )
 from core.formatter import SpectreFormatter, Color
 from web.secrets import (
@@ -54,7 +54,7 @@ from web.manual_testing import (
 )
 from web.deep_secrets import (
     deep_secret_hunt, quick_secret_scan, scan_js_for_secrets,
-    DeepSecretHunter, scan_local_secrets
+    DeepSecretHunter
 )
 from web.origin_finder import (
     find_origin, quick_origin_check, verify_origin_ip,
@@ -716,24 +716,6 @@ def register_routes(app):
             return jsonify({"error": "JWT token required"}), 400
         return jsonify(analyze_jwt(token))
     
-    @app.route("/api/analyze/hash", methods=["POST"])
-    def hash_analyze():
-        """Identify hash type"""
-        p = _json()
-        hash_str = p.get("hash", "")
-        if not hash_str:
-            return jsonify({"error": "Hash required"}), 400
-        return jsonify(identify_hash(hash_str))
-    
-    @app.route("/api/analyze/hash/generate", methods=["POST"])
-    def hash_generate():
-        """Generate common hashes for a string"""
-        p = _json()
-        text = p.get("text", "")
-        if not text:
-            return jsonify({"error": "Text required"}), 400
-        return jsonify({"success": True, "hashes": generate_hashes(text)})
-    
     @app.route("/api/analyze/cors", methods=["POST"])
     def cors_analyze():
         """Test CORS configuration"""
@@ -820,23 +802,6 @@ def register_routes(app):
             "results": results,
             "vulnerable": any(r["interesting"] for r in results)
         })
-    
-    # ==========================
-    # FILES
-    # ==========================
-    
-    @app.route("/api/files/create", methods=["POST"])
-    def create_file():
-        p = _json()
-        return jsonify(file_manager.create_file(p.get("filename", ""), p.get("content", ""), p.get("binary", False)))
-    
-    @app.route("/api/files/read", methods=["POST"])
-    def read_file():
-        return jsonify(file_manager.read_file(_json().get("filename", "")))
-    
-    @app.route("/api/files/list", methods=["GET"])
-    def list_files():
-        return jsonify(file_manager.list_files(request.args.get("directory", ".")))
     
     # ==========================
     # SMART REPORTING
@@ -954,11 +919,6 @@ def register_routes(app):
         
         return jsonify(load_target_context(target))
     
-    @app.route("/api/context/targets", methods=["GET"])
-    def context_list_targets():
-        """List all previously scanned targets"""
-        return jsonify(list_all_targets())
-    
     @app.route("/api/context/save_scan", methods=["POST"])
     def context_save_scan():
         """Save scan result to target context"""
@@ -1065,23 +1025,6 @@ def register_routes(app):
     # ==========================
     # SMART ANALYZER (AI)
     # ==========================
-    
-    @app.route("/api/ai/analyze", methods=["POST"])
-    def ai_analyze():
-        """AI-powered analysis of scan results"""
-        p = _json()
-        tool = p.get("tool", "unknown")
-        result = p.get("result", {})
-        
-        analysis = analyze_scan(tool, result)
-        return jsonify({
-            "success": True,
-            "analysis": analysis,
-            "insights": [
-                {"category": i.category, "message": i.message, "priority": i.priority}
-                for i in analysis.get("insights", [])
-            ]
-        })
     
     @app.route("/api/ai/detect_tech", methods=["POST"])
     def ai_detect_tech():
@@ -1587,6 +1530,40 @@ def register_routes(app):
             "suggestions": suggestions,
             "count": len(suggestions)
         })
+
+    # ==========================
+    # EXPOSED FILES / CMS / VHOST SCANNERS
+    # ==========================
+
+    @app.route("/api/scan/exposed-files", methods=["POST"])
+    def scan_exposed_files_route():
+        """Scan for exposed sensitive files (.git, .env, backups, configs)"""
+        url = _json().get("url", "")
+        if not url:
+            return jsonify({"success": False, "error": "URL required"}), 400
+        result = scan_exposed_files(url)
+        return jsonify(result)
+
+    @app.route("/api/scan/cms", methods=["POST"])
+    def scan_cms_route():
+        """Detect and scan CMS (WordPress, Joomla, Drupal, Magento)"""
+        url = _json().get("url", "")
+        if not url:
+            return jsonify({"success": False, "error": "URL required"}), 400
+        result = scan_cms(url)
+        return jsonify(result)
+
+    @app.route("/api/scan/vhosts", methods=["POST"])
+    def scan_vhosts_route():
+        """Discover virtual hosts by brute-forcing Host header"""
+        p = _json()
+        url = p.get("url", "")
+        if not url:
+            return jsonify({"success": False, "error": "URL required"}), 400
+        wordlist = p.get("wordlist", None)
+        max_workers = p.get("max_workers", 20)
+        result = discover_vhosts(url, wordlist=wordlist, max_workers=max_workers)
+        return jsonify(result)
     
     # ==========================
     # DEEP SECRET HUNTING
@@ -1636,52 +1613,6 @@ def register_routes(app):
         )
         return jsonify(result)
     
-    @app.route("/api/secrets/local", methods=["POST"])
-    def secrets_local_scan():
-        """
-        Scan local files/directories for secrets (no network requests).
-        
-        Input: {paths: ["/path/to/project", "/path/to/file.env"]}
-        Paths must be within ALLOWED_LOCAL_SCAN_DIRS.
-        """
-        from config.settings import ALLOWED_LOCAL_SCAN_DIRS
-        from pathlib import Path
-        import os as _os
-
-        paths = _json().get("paths", [])
-        if not paths:
-            return jsonify({"error": "Paths required"}), 400
-
-        if isinstance(paths, str):
-            paths = [paths]
-        elif not isinstance(paths, (list, tuple)):
-            return jsonify({"error": "paths must be a list or string"}), 400
-
-        allowed_resolved = [str(Path(d).resolve()) for d in ALLOWED_LOCAL_SCAN_DIRS]
-        safe_paths = []
-        rejected = []
-        for p in paths:
-            try:
-                resolved = str(Path(p).resolve())
-                if any(resolved == allowed or resolved.startswith(allowed + _os.sep) for allowed in allowed_resolved):
-                    safe_paths.append(p)
-                else:
-                    rejected.append({"path": p, "reason": "Outside allowed directories"})
-            except Exception:
-                rejected.append({"path": p, "reason": "Invalid path"})
-
-        if not safe_paths:
-            return jsonify({
-                "error": "No paths within allowed directories",
-                "rejected": rejected,
-                "allowed_dirs": allowed_resolved
-            }), 403
-
-        result = scan_local_secrets(safe_paths)
-        if rejected:
-            result["rejected_paths"] = rejected
-        return jsonify(result)
-    
     @app.route("/api/secrets/quick", methods=["POST"])
     def secrets_quick_scan():
         """Quick scan a single URL for secrets"""
@@ -1705,42 +1636,6 @@ def register_routes(app):
         
         result = scan_js_for_secrets(urls[:50])  # Limit to 50
         return jsonify(result)
-    
-    # ==========================
-    # LEARNING STORE
-    # ==========================
-    
-    @app.route("/api/learning/findings", methods=["GET"])
-    def learning_get_findings():
-        """Get findings from learning store"""
-        store = get_store()
-        
-        finding_type = request.args.get("type")
-        target = request.args.get("target")
-        label = request.args.get("label")
-        try:
-            limit = int(request.args.get("limit", 100))
-        except (ValueError, TypeError):
-            limit = 100
-        limit = max(1, min(limit, 1000))
-        
-        findings = store.get_findings(
-            finding_type=finding_type,
-            target=target,
-            label=label,
-            limit=limit
-        )
-        
-        return jsonify({
-            "findings": [f.to_dict() for f in findings],
-            "count": len(findings)
-        })
-    
-    @app.route("/api/learning/stats", methods=["GET"])
-    def learning_stats():
-        """Get learning store statistics"""
-        store = get_store()
-        return jsonify(store.get_stats())
     
     # ==========================
     # JOB QUEUE

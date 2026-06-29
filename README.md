@@ -47,7 +47,7 @@ strategy.
 ```
 ┌──────────────┐       ┌──────────────────┐       ┌──────────────────┐
 │  AI Agent    │──MCP──▶│  mcp_client.py   │──HTTP─▶│  server.py       │
-│ (Windsurf...)│       │  (53 MCP tools)  │       │  (Flask API)     │
+│ (Windsurf...)│       │  (47 MCP tools)  │       │  (Flask API)     │
 └──────────────┘       └──────────────────┘       └────────┬─────────┘
                                                             │
                           ┌─────────────────────────────────┼─────────────────────┐
@@ -56,7 +56,7 @@ strategy.
                      (tool wrappers)   (tech fingerprint)(secret scanning)  (payload gen)
 ```
 
-- **`mcp_client.py`** — MCP server exposing 53 tools, forwards to the HTTP API.
+- **`mcp_client.py`** — MCP server exposing 47 tools, forwards to the HTTP API.
 - **`server.py`** — Flask app hosting the REST API.
 - **`api/routes.py`** — All HTTP endpoints.
 - **`core/`** — Command execution, tech analysis, reporting, context, plugins.
@@ -269,7 +269,7 @@ get_wordlist(name="api_wild")
 suggest_wordlist(task="nosql injection testing")
 ```
 
-## 🛠️ MCP Tools (53 total)
+## 🛠️ MCP Tools (47 total)
 
 ### Core (3)
 | Tool | Description |
@@ -290,6 +290,13 @@ suggest_wordlist(task="nosql injection testing")
 | `katana_crawl` | Web crawler (capped at 500 URLs) |
 | `historical_urls` | Wayback / GAU historical URLs |
 
+### Content Discovery (3)
+| Tool | Description |
+|------|-------------|
+| `scan_exposed_files` | Scan 100+ sensitive paths (.git, .env, backups, configs, actuator) |
+| `scan_cms` | Detect WordPress/Joomla/Drupal/Magento + plugins/themes/admin paths |
+| `discover_vhosts` | Brute-force Host header to find hidden virtual hosts |
+
 ### Vulnerability Testing (3)
 | Tool | Description |
 |------|-------------|
@@ -305,13 +312,12 @@ suggest_wordlist(task="nosql injection testing")
 | `mutate_payload` | Mutate a payload with bypass techniques |
 | `encode_decode` | URL / Base64 / HTML / Hex / Unicode |
 
-### Secrets (4)
+### Secrets (3)
 | Tool | Description |
 |------|-------------|
 | `scan_secrets` | Scan text/URL/JS for hardcoded secrets |
 | `secrets_hunt` | Multi-stage deep secret hunt on a domain |
 | `secrets_js_hunt` | Scan multiple JS files for secrets |
-| `secrets_local_scan` | Scan local files/dirs (no network) |
 
 ### JavaScript & Web Analysis (2)
 | Tool | Description |
@@ -334,39 +340,23 @@ suggest_wordlist(task="nosql injection testing")
 | `test_graphql` | GraphQL introspection & batching |
 | `check_takeover` | Subdomain takeover detection |
 
-### Analysis (3)
+### Analysis (2)
 | Tool | Description |
 |------|-------------|
-| `analyze_hash` | Hash identification & crack hints |
 | `test_cors` | CORS misconfiguration testing |
 | `compare_responses` | Diff two responses (access control) |
 
-### AI Analysis (1)
-| Tool | Description |
-|------|-------------|
-| `ai_analyze` | Heuristic analysis: scan result / tech detect / classify endpoint / hints / summary |
-
-### Reporting & Context (4)
+### Reporting & Context (2)
 | Tool | Description |
 |------|-------------|
 | `report` | Persistent report: get / add_finding / add_note / summary / next_steps |
 | `load_context` | 🚨 Load previous findings (call first!) |
-| `list_targets` | List previously scanned targets |
-| `learning_stats` | Stored findings statistics |
 
-### Wordlists & Files (5)
+### Wordlists (2)
 | Tool | Description |
 |------|-------------|
 | `get_wordlist` | Fetch wordlist by name |
 | `suggest_wordlist` | Suggest wordlists for a task |
-| `create_file` | Create a file on the server |
-| `read_file` | Read a file from the server |
-| `list_files` | List files in a directory |
-
-### Learning Store (1)
-| Tool | Description |
-|------|-------------|
-| `learning_list_findings` | List stored findings (review history) |
 
 ### Origin IP Finder (8)
 | Tool | Free? | Description |
@@ -398,7 +388,7 @@ SpectreWeb AI:
 ```
 SpectreWeb-AI/
 ├── server.py              # Flask server
-├── mcp_client.py          # MCP client (53 tools)
+├── mcp_client.py          # MCP client (47 tools)
 ├── config/
 │   ├── settings.py        # Configuration
 │   └── wordlists.py       # SecLists (auto-resolve)

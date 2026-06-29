@@ -17,7 +17,8 @@ from .exploits import (
     SSTI_PAYLOADS, detect_template_engine,
     detect_deserialization_risk, generate_cache_poison_tests,
     generate_smuggling_payloads, get_business_logic_tests,
-    generate_waf_bypass_variants, AUTH_BYPASS_PAYLOADS
+    generate_waf_bypass_variants, AUTH_BYPASS_PAYLOADS,
+    scan_exposed_files, scan_cms, discover_vhosts
 )
 from .secrets import (
     scan_for_secrets, scan_js, scan_url_for_secrets,
@@ -60,6 +61,7 @@ __all__ = [
     "generate_cache_poison_tests", "generate_smuggling_payloads",
     "get_business_logic_tests", "generate_waf_bypass_variants",
     "AUTH_BYPASS_PAYLOADS",
+    "scan_exposed_files", "scan_cms", "discover_vhosts",
     "scan_for_secrets", "scan_js", "scan_url_for_secrets",
     "get_secret_patterns", "calculate_string_entropy",
     "SecretScanner", "SECRET_PATTERNS",
